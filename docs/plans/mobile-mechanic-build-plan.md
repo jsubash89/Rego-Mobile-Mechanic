@@ -25,6 +25,20 @@ The loop must survive context resets. Durable state lives in repo artifacts, com
 
 ---
 
+## Market research inputs
+
+Read `docs/research/market-research.md` before refining any P0 feature doc or implementation task. It adds competitor benchmarks, customer pain points, provider operations constraints, pricing/estimate requirements, VIN/parts fitment, recall/warranty routing, and compliance implications.
+
+Research-driven product requirements now emphasized:
+- VIN/plate-first vehicle profile and recall/dealer routing.
+- Fixed/range/TBD estimate model with written authorization and change-order approval.
+- Mobile eligibility rules per service, vehicle, provider skill, tools, location, and parts readiness.
+- Provider trust/compliance: ASE/certifications, insurance COI, licenses, background/verification, warranty.
+- Dispatch logic must account for travel time, buffers, route density, parts readiness, and SLA risk.
+- Diagnostic flow should separate “I know what I need” from “something is wrong.”
+
+---
+
 ## Task 1: Restore Mobile Mechanic direction
 
 Objective: Correct the mistaken AssistMe pivot and rebuild the page as a Mobile Mechanic marketplace prototype.
