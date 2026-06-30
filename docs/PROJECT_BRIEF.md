@@ -1,68 +1,79 @@
-# AssistMe Platform Prototype — Project Brief
+# Mobile Mechanic Marketplace — Project Brief
+
+## Correction
+
+The product direction is Mobile Mechanic. The create.xyz export in Downloads was rough inspiration and was broken, but it was not meant to become AssistMe. A previous pass mistakenly reframed the app as AssistMe; that has been corrected locally.
 
 ## Source material inspected
 
 - Local create.xyz export: `/Users/johnnysubash/Downloads/createxyz-project`
-- Working copy created at: `/Users/johnnysubash/Documents/createxyz-mobile-mechanic`
-- AssistMe narrative PDF: `/Users/johnnysubash/Downloads/AssistMe Narrative Flow - Final Pre Build.pdf`
-- AssistMe diagrams PDF: `/Users/johnnysubash/Downloads/AssistMe_Diagrams.pdf`
-- Linear project found: `AssistMe` in JS Ventures
+- Working copy: `/Users/johnnysubash/Documents/createxyz-mobile-mechanic`
 
 ## What the imported code was
 
-The create.xyz export was a very early single-page Next.js mockup. It was branded as a generic "Mobile Mechanic" booking flow and was not production-ready:
+The original export was a single-page Next.js mockup for a mobile mechanic booking app. It contained useful product hints:
 
-- `src/app/page.jsx` referenced `useState` without importing it.
-- Several UI states were declared but never rendered.
-- `autoShops` was referenced but undefined.
-- The create.xyz middleware rewrote `/integrations/*` to create.xyz and was unnecessary for an owned app.
-- `src/utilities/runtime-helpers.js` exported `rawUseUpload`, which was not defined.
-- Next.js 14.0.4 had multiple audit findings.
+- Services: oil change, inspection, tune-up, error/check-engine diagnostics.
+- Vehicle profile flow.
+- Oil preference flow.
+- Mobile mechanic vs independent shop vs dealership fulfillment.
+- Provider selection.
+- Appointment and checkout states.
+- Service history.
 
-## Product direction inferred from actual AssistMe docs
+It was not production-ready:
 
-The project should be rebuilt as an AssistMe recruiting workflow platform, not as the imported Mobile Mechanic mockup.
-
-Core product model:
-
-- Bullhorn is the system of record.
-- Herefish is the orchestration layer.
-- Calendly handles recruiter screen and client interview scheduling.
-- Candidately is the branded client shortlist portal.
-- Hinterview handles candidate video introductions and recorded interviews.
-- Granola is the structured note capture path for phone screens.
-
-The first valuable build target is a clean prototype / command center that makes the 18-step journey explicit and gives the future backend model a stable shape.
+- `useState` was referenced without being imported.
+- `autoShops` was referenced but not defined.
+- Multiple modal states were declared without complete flow handling.
+- The create.xyz middleware rewrote integration routes back to create.xyz.
+- `runtime-helpers.js` exported an undefined symbol.
+- The original Next.js version had security audit findings.
 
 ## Current implemented baseline
 
-The first pass converts the broken create.xyz app into a buildable AssistMe candidate journey command center:
+The app is now a working Mobile Mechanic marketplace prototype:
 
-- Interactive 18-step journey organized into four phases.
-- System architecture cards for the six-tool stack.
-- Selected-step details showing owner, event, stored data, and status.
-- Updated metadata and package name.
-- Removed the create.xyz middleware rewrite.
-- Fixed the undefined helper export.
-- Upgraded Next.js via `npm audit fix --force` to `next@^16.2.9`.
+- Service selection for oil changes, diagnostics, brakes, and pre-purchase inspections.
+- Fulfillment options: mobile mechanic, independent shop, dealership.
+- Oil preference selection for oil changes.
+- Provider comparison with ratings, distance, specialties, and earliest availability.
+- Booking summary with vehicle, location, provider, time, fulfillment type, and estimate.
+- Editable vehicle profile / garage tab.
+- Service history tab.
+- Updated package name and metadata.
+- Removed generated create.xyz middleware.
+- Fixed undefined helper export.
 
 ## Verification already run
 
-- `npm install`
+- `npm install --package-lock-only`
 - `npm run build`
 
-Latest build result: passing.
+Latest build result: passing on Next.js 16.2.9.
 
-Known remaining caveat: npm audit still reports moderate issues against Next/PostCSS advisories even after upgrading to `next@^16.2.9`; npm reports no non-breaking fix path and suggests a breaking/downgrade path. Treat this as a dependency-monitoring item rather than a blocker for the static prototype.
+Known caveat: `npm audit` still reports moderate Next/PostCSS advisories. npm’s suggested fix path is breaking and inconsistent, so this is documented as dependency-monitoring until a clean patched Next line is available.
+
+## Product thesis
+
+Mobile Mechanic should become a marketplace/operating layer for vehicle service:
+
+1. Customer enters or selects a vehicle.
+2. App recommends services and parts based on vehicle context.
+3. Customer chooses fulfillment: mobile mechanic, shop, or dealership.
+4. Customer compares trusted providers by price, distance, rating, specialty, and availability.
+5. Customer books an appointment with a transparent estimate.
+6. Provider confirms parts/arrival and performs the service.
+7. Service report, photos, invoice, warranty, and reminders persist to the vehicle history.
 
 ## Next direction
 
-Build from prototype to useful product in this order:
+Build from prototype to product in this order:
 
-1. Stabilize app shell, visual hierarchy, responsive behavior, and docs.
-2. Extract journey, systems, statuses, and events into typed data modules.
-3. Add candidate and recruiter views with realistic mock data.
-4. Add event timeline / audit trail model.
-5. Add integration adapter stubs for Bullhorn, Herefish, Calendly, Candidately, Hinterview, and Granola.
-6. Add tests around journey state transitions and data mapping.
-7. Add GitHub remote, CI, and deploy target when ownership is decided.
+1. Extract service/provider/vehicle data into modules.
+2. Add tests for pricing and booking-state calculations.
+3. Add a proper booking state machine.
+4. Add provider and customer views.
+5. Add persisted local storage or a lightweight database.
+6. Add auth and real backend only after the flow is stable.
+7. Add payments, messaging, provider onboarding, and dispatch logic.

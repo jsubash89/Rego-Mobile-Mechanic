@@ -4,8 +4,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
-  title: "AssistMe Platform Prototype",
-  description: "Candidate journey command center for the AssistMe recruiting workflow.",
+  title: "Mobile Mechanic Marketplace",
+  description: "Book vetted mobile mechanics, auto shops, and dealership service options for your vehicle.",
 };
 
 export default function RootLayout({ children }) {
