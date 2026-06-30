@@ -44,6 +44,7 @@ This index maps the buildable repository documents to their Linear tracking issu
 - JS-819 — Feature: Search and Matching — https://linear.app/js-ventures/issue/JS-819/feature-search-and-matching
 - JS-820 — Feature: Reviews and Ratings — https://linear.app/js-ventures/issue/JS-820/feature-reviews-and-ratings
 - JS-821 — Feature: Audit Log — https://linear.app/js-ventures/issue/JS-821/feature-audit-log
+- JS-822 — Feature: Partner-driven emergency roadside handoff — https://linear.app/js-ventures/issue/JS-822/partner-driven-emergency-roadside-handoff
 
 ## Operating rule
 

@@ -22,7 +22,7 @@ Competitors validate each part of the thesis separately:
 - Yelp/Google validate that local discovery and reviews are entrenched substitutes.
 - Dealership/OEM portals validate VIN, recall, warranty, and OEM service routing.
 - Tire Rack/Goodyear mobile service validate predictable mobile wedge services.
-- AAA validates urgent/roadside intent, but also shows that emergency dispatch is a different operational model.
+- AAA validates urgent/roadside intent, but also shows that emergency dispatch is a different operational model. ReGo will not operate emergency roadside directly; emergency/tow/lockout/fuel flows are partner-routed.
 
 ReGo’s wedge should be:
 
@@ -129,7 +129,7 @@ Offering:
 
 ReGo opportunity:
 - Build a strong “diagnose first, quote second” flow.
-- Clarify whether roadside/fleet are roadmap items or non-goals.
+- Treat towing/roadside as adjacency only; ReGo should partner-route emergency roadside instead of staffing or operating it directly.
 - Compete on same/next-day availability and ETA transparency.
 
 ### AutoNation Mobile Service / RepairSmith successor
@@ -219,8 +219,8 @@ Offering:
 - Emergency roadside assistance, towing, battery, flat tire, lockout, fuel.
 
 ReGo opportunity:
-- Decide whether ReGo supports emergency jobs. Scheduled service and emergency roadside are different ops models.
-- Add “urgent now” triage that routes to tow/roadside vs. mobile mechanic vs. shop.
+- Emergency roadside is explicitly partner-driven. ReGo should not personally operate towing, lockout, fuel delivery, emergency flat-tire response, or emergency battery dispatch.
+- Add “urgent now” triage only as a routing/handoff layer: partner roadside/tow vs. scheduled mobile mechanic vs. shop/dealer.
 
 ## Provider/supply-side operations
 
@@ -413,7 +413,7 @@ P1 should include:
 
 P2 should include:
 
-1. Roadside/tow handoff or integration.
+1. Partner-driven roadside/tow handoff or integration; ReGo does not operate emergency roadside directly.
 2. Fleet/light commercial flow.
 3. Dealer/warranty partner integrations.
 4. Advanced diagnostics/telematics.
@@ -457,7 +457,7 @@ Feature docs to refine first:
 
 ## Open strategic questions
 
-1. Is emergency roadside in scope, or should ReGo route out to AAA/tow partners?
+1. Which roadside/tow partners should ReGo route emergency cases to by market?
 2. Will dealership fulfillment be direct scheduling, referral/lead, or partner integration?
 3. What warranty does ReGo offer, and who backs it?
 4. Does ReGo require ASE certification for all providers or only higher-complexity jobs?
