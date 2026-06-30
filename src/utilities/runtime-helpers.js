@@ -83,5 +83,5 @@ function useUpload() {
 
 export {
   useHandleStreamResponse,
-  rawUseUpload,
+  useUpload,
 }
