@@ -1,8 +1,13 @@
-# Mobile Mechanic Marketplace — Project Brief
+# ReGo Mobile Mechanic — Project Brief
 
-## Correction
+## Correction and naming
 
-The product direction is Mobile Mechanic. The create.xyz export in Downloads was rough inspiration and was broken, but it was not meant to become AssistMe. A previous pass mistakenly reframed the app as AssistMe; that has been corrected locally.
+The product direction is ReGo Mobile Mechanic: a marketplace/operating layer for mobile mechanics, independent shops, and dealership service. The create.xyz export in Downloads was rough inspiration and was broken, but it was not meant to become AssistMe. A previous pass mistakenly reframed the app as AssistMe; that has been corrected locally.
+
+Linear project: `ReGo Mobile Mechanic` in JS Ventures.
+Project URL: https://linear.app/js-ventures/project/rego-mobile-mechanic-ee580668ba72
+
+Documentation policy: every feature must have a buildable document under `docs/features/`, and Linear issues track those docs and their implementation readiness.
 
 ## Source material inspected
 

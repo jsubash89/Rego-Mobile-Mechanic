@@ -22,7 +22,7 @@ const pkgPath = path.join(root, "package.json");
 const briefPath = path.join(root, "docs/PROJECT_BRIEF.md");
 const planPath = path.join(root, "docs/plans/mobile-mechanic-build-plan.md");
 
-console.log(`# Mobile Mechanic Context Snapshot`);
+console.log(`# ReGo Mobile Mechanic Context Snapshot`);
 console.log(`root: ${root}`);
 console.log(`generatedAt: ${new Date().toISOString()}`);
 
