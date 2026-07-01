@@ -4,11 +4,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { fulfillmentOptions } from "@/data/fulfillment";
 import { serviceHistory } from "@/data/history";
+import { providerJobs as seededProviderJobs } from "@/data/provider-jobs";
 import { providers } from "@/data/providers";
 import { oilOptions, services } from "@/data/services";
 import { initialVehicle } from "@/data/vehicles";
 import bookingState from "@/lib/booking-state";
 import localStorageHelpers from "@/lib/local-storage";
+import providerOperations from "@/lib/provider-operations";
 import matching from "@/lib/provider-matching";
 import pricing from "@/lib/pricing";
 
@@ -16,6 +18,7 @@ const { deriveProviderSelection, getProviderMatchingResults } = matching;
 const { clearBookingDraft, loadBookingDraft, normalizeBookingDraft, saveBookingDraft } = localStorageHelpers;
 const { calculateEstimate, formatEstimateAmount, getEstimateStatusCopy } = pricing;
 const { canConfirmBooking, getBookingSteps, getConfirmationGuidance, requiresPartsSelection, transitionBooking } = bookingState;
+const { PROVIDER_JOB_STATES, canAcceptProviderJob, canDeclineProviderJob, canProgressProviderJob, getCompletionReadiness, hasPendingCustomerApproval, transitionProviderJob } = providerOperations;
 
 const DEFAULT_BOOKING_DRAFT = {
   selectedServiceId: "oil-change",
@@ -29,6 +32,10 @@ const DEFAULT_BOOKING_DRAFT = {
 
 function currency(amount) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
+}
+
+function providerStatusLabel(status) {
+  return String(status ?? "unknown").replaceAll("_", " ");
 }
 
 function Pill({ children, tone = "slate" }) {
@@ -53,6 +60,9 @@ export default function MobileMechanicMarketplace() {
   const [bookingConfirmed, setBookingConfirmed] = useState(false);
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [draftNotice, setDraftNotice] = useState("Loading saved draft…");
+  const [providerJobs, setProviderJobs] = useState(seededProviderJobs);
+  const [selectedProviderJobId, setSelectedProviderJobId] = useState(seededProviderJobs[0]?.id ?? null);
+  const [providerDecisionNotice, setProviderDecisionNotice] = useState("Static provider workbench demo: changes stay in memory only.");
   const skipNextDraftSave = useRef(false);
 
   useEffect(() => {
@@ -152,6 +162,103 @@ export default function MobileMechanicMarketplace() {
   const confirmationGuidance = getConfirmationGuidance(bookingDraft);
   const estimateCopy = getEstimateStatusCopy(estimate, { service: selectedService, provider: selectedProvider });
   const confirmationButtonLabel = bookingConfirmed ? "Appointment confirmed" : confirmationReady ? "Confirm appointment" : "Complete booking details";
+  const selectedProviderJob = providerJobs.find((job) => job.id === selectedProviderJobId) ?? providerJobs[0];
+  const selectedCompletionReadiness = getCompletionReadiness(selectedProviderJob);
+  const pendingSelectedCustomerApproval = hasPendingCustomerApproval(selectedProviderJob);
+  const selectedCanAccept = canAcceptProviderJob(selectedProviderJob).ok;
+  const selectedCanDecline = canDeclineProviderJob(selectedProviderJob, "Demo decline: provider capacity or fitment risk").ok;
+  const providerProgressActions = [
+    { status: PROVIDER_JOB_STATES.confirmed, label: "Confirm readiness" },
+    { status: PROVIDER_JOB_STATES.enRoute, label: "Start route" },
+    { status: PROVIDER_JOB_STATES.arrived, label: "Mark arrived" },
+    { status: PROVIDER_JOB_STATES.inProgress, label: "Start work" },
+    { status: PROVIDER_JOB_STATES.completed, label: "Complete job" },
+    { status: PROVIDER_JOB_STATES.reportSubmitted, label: "Submit report" },
+    { status: PROVIDER_JOB_STATES.closed, label: "Close job" },
+  ].filter((action) => canProgressProviderJob(selectedProviderJob, action.status).ok);
+  const canRequestSelectedCustomerApproval = canProgressProviderJob(selectedProviderJob, PROVIDER_JOB_STATES.customerApprovalRequired).ok;
+  const payoutQueuedStatuses = ["queued", "processing"];
+  const earningsEligibleStatuses = [PROVIDER_JOB_STATES.completed, PROVIDER_JOB_STATES.reportSubmitted, PROVIDER_JOB_STATES.closed];
+  const queuedEarnings = providerJobs
+    .filter((job) => earningsEligibleStatuses.includes(job.status) || payoutQueuedStatuses.includes(job.payout?.status))
+    .reduce((sum, job) => sum + (job.estimate?.providerEarnings ?? 0), 0);
+
+  function updateProviderJob(jobId, event, successMessage) {
+    const currentJob = providerJobs.find((job) => job.id === jobId);
+    if (!currentJob) {
+      setProviderDecisionNotice("Provider job was not found in the static demo queue.");
+      return;
+    }
+
+    const result = transitionProviderJob(currentJob, event);
+    if (!result.ok) {
+      setProviderDecisionNotice(result.blockers.join(" "));
+      return;
+    }
+
+    setProviderJobs((currentJobs) => currentJobs.map((job) => (job.id === jobId ? result.job : job)));
+    setSelectedProviderJobId(jobId);
+    setProviderDecisionNotice(successMessage);
+  }
+
+  function markSelectedReportReady() {
+    if (!selectedProviderJob) {
+      return;
+    }
+
+    setProviderJobs((currentJobs) => currentJobs.map((job) => (
+      job.id === selectedProviderJob.id
+        ? {
+          ...job,
+          report: {
+            notes: job.report?.notes || "Static demo service notes captured. Work performed and reviewed with customer.",
+            photos: job.report?.photos?.length ? job.report.photos : ["demo-completion-photo.jpg"],
+            checklist: (job.report?.checklist ?? []).map((item) => ({ ...item, completed: true })),
+            invoice: { ...(job.report?.invoice ?? {}), placeholderReady: true, label: "Invoice placeholder ready" },
+          },
+        }
+        : job
+    )));
+    setProviderDecisionNotice("Demo report fields and invoice placeholder filled. Customer approval still requires its explicit request/approval path.");
+  }
+
+  function approveSelectedChangeRequest() {
+    if (!selectedProviderJob) {
+      return;
+    }
+
+    if (!pendingSelectedCustomerApproval) {
+      setProviderDecisionNotice("No pending customer approval is open for this job.");
+      return;
+    }
+
+    if (selectedProviderJob.status !== PROVIDER_JOB_STATES.customerApprovalRequired) {
+      setProviderDecisionNotice("Request customer approval before recording approval for scope or price changes.");
+      return;
+    }
+
+    const approvedJob = {
+      ...selectedProviderJob,
+      changeRequest: { ...selectedProviderJob.changeRequest, approvalStatus: "approved" },
+    };
+    const approvalReturnStatus = selectedProviderJob.approvalReturnStatus ?? PROVIDER_JOB_STATES.inProgress;
+    const result = transitionProviderJob(approvedJob, { type: "progress", nextStatus: approvalReturnStatus });
+
+    if (!result.ok) {
+      setProviderDecisionNotice(result.blockers.join(" "));
+      return;
+    }
+
+    setProviderJobs((currentJobs) => currentJobs.map((job) => (job.id === selectedProviderJob.id ? result.job : job)));
+    setProviderDecisionNotice(`Customer approval recorded explicitly; provider job returned to ${providerStatusLabel(result.job.status)}.`);
+  }
+
+  function statusTone(status) {
+    if ([PROVIDER_JOB_STATES.completed, PROVIDER_JOB_STATES.reportSubmitted, PROVIDER_JOB_STATES.closed].includes(status)) return "green";
+    if ([PROVIDER_JOB_STATES.inProgress, PROVIDER_JOB_STATES.arrived, PROVIDER_JOB_STATES.enRoute].includes(status)) return "blue";
+    if ([PROVIDER_JOB_STATES.offered, PROVIDER_JOB_STATES.customerApprovalRequired].includes(status)) return "amber";
+    return "slate";
+  }
 
   function updateDraft(updater) {
     setBookingConfirmed(false);
@@ -245,7 +352,7 @@ export default function MobileMechanicMarketplace() {
       </header>
 
       <nav className="mx-auto flex max-w-7xl gap-2 px-6 py-5">
-        {["book", "vehicle", "history"].map((tab) => (
+        {["book", "vehicle", "history", "provider"].map((tab) => (
           <button
             key={tab}
             type="button"
@@ -547,6 +654,190 @@ export default function MobileMechanicMarketplace() {
               ))}
             </div>
           </div>
+        </section>
+      )}
+
+      {activeTab === "provider" && selectedProviderJob && (
+        <section className="mx-auto grid max-w-7xl gap-6 px-6 pb-16 lg:grid-cols-[1fr_380px]">
+          <div className="space-y-6">
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Provider workbench</p>
+                  <h2 className="mt-1 text-2xl font-black">Incoming and assigned work</h2>
+                  <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-600">
+                    Static operations MVP for provider-side decisions, readiness checks, work progress, report completion, and payout queue copy. No backend, auth, payments, or localStorage PII is used here.
+                  </p>
+                </div>
+                <Pill tone="blue">Demo provider: Maria</Pill>
+              </div>
+              <div className="mt-5 rounded-2xl bg-blue-50 p-4 text-sm font-semibold text-blue-900">{providerDecisionNotice}</div>
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                {providerJobs.map((job) => (
+                  <button
+                    key={job.id}
+                    type="button"
+                    onClick={() => setSelectedProviderJobId(job.id)}
+                    className={`rounded-2xl border p-5 text-left transition ${
+                      selectedProviderJob.id === job.id ? "border-blue-700 bg-blue-50 shadow-md" : "border-slate-200 bg-white hover:border-slate-400"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-black">{job.service}</h3>
+                        <p className="mt-1 text-sm font-semibold text-slate-600">{job.bookingId} · {job.scheduledWindow}</p>
+                      </div>
+                      <Pill tone={statusTone(job.status)}>{providerStatusLabel(job.status)}</Pill>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                      <div className="rounded-2xl bg-slate-50 p-3"><span className="text-slate-500">Vehicle</span><strong className="block">{job.vehicle.year} {job.vehicle.make} {job.vehicle.model}</strong></div>
+                      <div className="rounded-2xl bg-slate-50 p-3"><span className="text-slate-500">Masked location</span><strong className="block">{job.customer.addressSummary}</strong></div>
+                      <div className="rounded-2xl bg-slate-50 p-3"><span className="text-slate-500">VIN</span><strong className="block">{job.vehicle.vinMasked}</strong></div>
+                      <div className="rounded-2xl bg-slate-50 p-3"><span className="text-slate-500">Earnings</span><strong className="block">{currency(job.estimate.providerEarnings)}</strong></div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Decision and readiness</p>
+                  <h2 className="mt-1 text-2xl font-black">{selectedProviderJob.service}</h2>
+                  <p className="mt-2 text-sm font-semibold text-slate-600">
+                    Customer {selectedProviderJob.customer.displayName} · {selectedProviderJob.fulfillment} · {selectedProviderJob.customer.phoneMasked} · {selectedProviderJob.customer.addressSummary}
+                  </p>
+                </div>
+                <Pill tone={statusTone(selectedProviderJob.status)}>{providerStatusLabel(selectedProviderJob.status)}</Pill>
+              </div>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Parts / fitment</p>
+                  <p className="mt-2 font-black">{selectedProviderJob.readiness.partsFitmentReady ? "Ready" : "Needs check"}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Tools</p>
+                  <p className="mt-2 font-black">{selectedProviderJob.readiness.toolsReady ? "Ready" : "Needs check"}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Arrival window</p>
+                  <p className="mt-2 font-black">{selectedProviderJob.readiness.arrivalWindow}</p>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+                <p className="font-black">Customer approval for changes</p>
+                <p className="mt-1 text-sm font-semibold text-slate-600">{selectedProviderJob.readiness.customerApprovalForChanges}</p>
+                {selectedProviderJob.changeRequest && (
+                  <p className="mt-2 text-sm font-bold text-amber-700">
+                    Open change: {selectedProviderJob.changeRequest.summary} · {currency(selectedProviderJob.changeRequest.priceDelta)} · approval {selectedProviderJob.changeRequest.approvalStatus}
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                {selectedCanAccept && (
+                  <button
+                    type="button"
+                    onClick={() => updateProviderJob(selectedProviderJob.id, { type: "accept" }, "Provider accepted after feasibility, tools, parts, and arrival readiness checks.")}
+                    className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700"
+                  >
+                    Accept feasible work
+                  </button>
+                )}
+                {selectedCanDecline && (
+                  <button
+                    type="button"
+                    onClick={() => updateProviderJob(selectedProviderJob.id, { type: "decline", reason: "Demo decline: provider capacity or fitment risk" }, "Provider declined with reason: capacity or fitment risk.")}
+                    className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
+                  >
+                    Decline with reason
+                  </button>
+                )}
+                {!selectedCanAccept && !selectedCanDecline && (
+                  <p className="rounded-2xl bg-slate-50 px-5 py-3 text-sm font-bold text-slate-600">No decision actions are valid for this job state.</p>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Job progress</p>
+              <h2 className="mt-1 text-2xl font-black">Canonical-compatible flow</h2>
+              <div className="mt-5 flex flex-wrap gap-2">
+                {canRequestSelectedCustomerApproval && (
+                  <button
+                    type="button"
+                    onClick={() => updateProviderJob(selectedProviderJob.id, { type: "progress", nextStatus: PROVIDER_JOB_STATES.customerApprovalRequired }, "Customer approval requested for the pending scope or price change.")}
+                    className="rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-black text-amber-800 transition hover:border-amber-600"
+                  >
+                    Request customer approval
+                  </button>
+                )}
+                {providerProgressActions.map((action) => (
+                  <button
+                    key={action.status}
+                    type="button"
+                    onClick={() => updateProviderJob(selectedProviderJob.id, { type: "progress", nextStatus: action.status }, `Provider job moved to ${providerStatusLabel(action.status)}.`)}
+                    className="rounded-full border border-slate-200 px-4 py-2 text-sm font-black text-slate-700 transition hover:border-blue-700 hover:text-blue-700"
+                  >
+                    {action.label}
+                  </button>
+                ))}
+                {pendingSelectedCustomerApproval && selectedProviderJob.status === PROVIDER_JOB_STATES.customerApprovalRequired && (
+                  <button
+                    type="button"
+                    onClick={approveSelectedChangeRequest}
+                    className="rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-800 transition hover:border-emerald-600"
+                  >
+                    Record customer approval
+                  </button>
+                )}
+                {!canRequestSelectedCustomerApproval && providerProgressActions.length === 0 && !(pendingSelectedCustomerApproval && selectedProviderJob.status === PROVIDER_JOB_STATES.customerApprovalRequired) && (
+                  <p className="rounded-2xl bg-slate-50 px-5 py-3 text-sm font-bold text-slate-600">No progress actions are valid for this job state.</p>
+                )}
+              </div>
+            </section>
+          </div>
+
+          <aside className="space-y-6">
+            <section className="sticky top-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
+              <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Completion gate</p>
+              <h2 className="mt-2 text-2xl font-black">Service report required</h2>
+              <div className="mt-4 space-y-3 text-sm font-semibold text-slate-700">
+                <div className="rounded-2xl bg-slate-50 p-4"><strong>Notes:</strong> {selectedProviderJob.report.notes || "Required before completion"}</div>
+                <div className="rounded-2xl bg-slate-50 p-4"><strong>Photos:</strong> {selectedProviderJob.report.photos.length} attached</div>
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <strong>Checklist:</strong>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {selectedProviderJob.report.checklist.map((item) => <li key={item.id}>{item.completed ? "✓" : "○"} {item.label}</li>)}
+                  </ul>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-4"><strong>Invoice:</strong> {selectedProviderJob.report.invoice.label}</div>
+              </div>
+              {!selectedCompletionReadiness.ready && (
+                <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+                  <p className="font-black">Blocked until:</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {selectedCompletionReadiness.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+                  </ul>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={markSelectedReportReady}
+                className="mt-5 w-full rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-black text-blue-800 transition hover:border-blue-700"
+              >
+                Fill static report fields
+              </button>
+              <div className="mt-5 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-900">
+                <p className="font-black">Payout / earnings</p>
+                <p className="mt-1 font-semibold">{selectedProviderJob.payout.copy}</p>
+                <p className="mt-2 font-black">Queued demo earnings: {currency(queuedEarnings)}</p>
+              </div>
+            </section>
+          </aside>
         </section>
       )}
     </main>
