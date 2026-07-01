@@ -8,8 +8,10 @@ import { providers } from "@/data/providers";
 import { oilOptions, services } from "@/data/services";
 import { initialVehicle } from "@/data/vehicles";
 import bookingState from "@/lib/booking-state";
+import matching from "@/lib/provider-matching";
 import pricing from "@/lib/pricing";
 
+const { chooseSelectedProvider, getProviderMatchingResults } = matching;
 const { calculateEstimate, formatEstimateAmount } = pricing;
 const { canConfirmBooking, getBookingState, getBookingSteps, requiresPartsSelection, transitionBooking } = bookingState;
 
@@ -41,8 +43,13 @@ export default function MobileMechanicMarketplace() {
   const selectedService = services.find((service) => service.id === selectedServiceId) ?? services[0];
   const fulfillment = fulfillmentOptions.find((option) => option.id === fulfillmentId) ?? fulfillmentOptions[0];
   const selectedOil = oilOptions.find((oil) => oil.id === selectedOilId) ?? oilOptions[0];
-  const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? providers[0];
   const partsSelectionRequired = requiresPartsSelection(selectedService);
+  const matchingRequest = useMemo(() => ({ service: selectedService, fulfillment }), [selectedService, fulfillment]);
+  const providerMatchingResults = useMemo(() => getProviderMatchingResults(providers, matchingRequest), [matchingRequest]);
+  const providerMatches = providerMatchingResults.matches;
+  const selectedProviderMatch = chooseSelectedProvider({ providers, selectedProviderId, request: matchingRequest });
+  const selectedProvider = selectedProviderMatch?.provider ?? null;
+  const selectedAppointmentTime = selectedProviderMatch ? (selectedProviderMatch.earliestSlot ?? appointmentTime) : null;
 
   const estimate = useMemo(() => {
     return calculateEstimate({ service: selectedService, oil: selectedOil, fulfillment });
@@ -54,10 +61,10 @@ export default function MobileMechanicMarketplace() {
     oil: partsSelectionRequired ? selectedOil : undefined,
     provider: selectedProvider,
     vehicle,
-    appointmentTime,
+    appointmentTime: selectedAppointmentTime,
     estimate,
     confirmed: bookingConfirmed,
-  }), [selectedService, fulfillment, selectedOil, selectedProvider, vehicle, appointmentTime, estimate, bookingConfirmed, partsSelectionRequired]);
+  }), [selectedService, fulfillment, selectedOil, selectedProvider, vehicle, selectedAppointmentTime, estimate, bookingConfirmed, partsSelectionRequired]);
   const steps = getBookingSteps(bookingDraft);
   const stepByState = Object.fromEntries(steps.map((step) => [step.state, step]));
   const currentBookingState = getBookingState(bookingDraft);
@@ -219,24 +226,47 @@ export default function MobileMechanicMarketplace() {
               <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">{stepEyebrow("select_provider")}</p>
               <h2 className="mt-1 text-2xl font-black">Compare available providers</h2>
               <div className="mt-5 space-y-4">
-                {providers.map((provider) => (
+                {providerMatches.length === 0 && (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+                    <p className="font-black">No eligible providers available</p>
+                    <p className="mt-1 font-semibold">No provider can cover this service and fulfillment combination right now. Try another fulfillment option or adjust the service details before confirming.</p>
+                    {providerMatchingResults.ineligible.length > 0 && (
+                      <ul className="mt-3 list-disc space-y-1 pl-5 text-xs font-semibold">
+                        {providerMatchingResults.ineligible.slice(0, 3).map((match) => (
+                          <li key={match.providerId}>{match.provider.name}: {match.exclusions.join(", ")}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+                {providerMatches.map((match, index) => {
+                  const provider = match.provider;
+
+                  return (
                   <button
                     key={provider.id}
                     type="button"
                     onClick={() => {
                       updateDraft(() => {
                         setSelectedProviderId(provider.id);
-                        setAppointmentTime(provider.earliest);
+                        setAppointmentTime(match.earliestSlot ?? provider.earliest);
                       });
                     }}
                     className={`w-full rounded-2xl border p-5 text-left transition ${
-                      selectedProviderId === provider.id ? "border-green-600 bg-emerald-50 shadow-md" : "border-slate-200 bg-white hover:border-slate-400"
+                      selectedProvider?.id === provider.id ? "border-green-600 bg-emerald-50 shadow-md" : "border-slate-200 bg-white hover:border-slate-400"
                     }`}
                   >
                     <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                       <div>
-                        <h3 className="text-xl font-black">{provider.name}</h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-xl font-black">{provider.name}</h3>
+                          {index === 0 && <Pill tone="blue">Best match</Pill>}
+                          <Pill tone="green">Score {Math.round(match.score)}</Pill>
+                        </div>
                         <p className="text-sm font-semibold text-slate-600">{provider.type}</p>
+                        <p className="mt-2 text-xs font-semibold text-slate-500">
+                          {match.reasons.slice(0, 3).join(" · ")}
+                        </p>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {provider.specialties.map((specialty) => <Pill key={specialty} tone="green">{specialty}</Pill>)}
                         </div>
@@ -244,11 +274,19 @@ export default function MobileMechanicMarketplace() {
                       <div className="grid grid-cols-3 gap-4 text-sm md:text-right">
                         <div><div className="font-black">{provider.rating}★</div><div className="text-slate-500">{provider.reviews} reviews</div></div>
                         <div><div className="font-black">{provider.distance} mi</div><div className="text-slate-500">away</div></div>
-                        <div><div className="font-black">{provider.earliest}</div><div className="text-slate-500">earliest</div></div>
+                        <div><div className="font-black">{match.earliestSlot ?? provider.earliest}</div><div className="text-slate-500">earliest</div></div>
                       </div>
                     </div>
+                    <div className="mt-4 grid gap-2 text-xs font-semibold text-slate-500 md:grid-cols-5">
+                      <span>Availability +{Math.round(match.scoreComponents.availability ?? 0)}</span>
+                      <span>Distance +{Math.round(match.scoreComponents.distance ?? 0)}</span>
+                      <span>Rating +{Math.round(match.scoreComponents.rating ?? 0)}</span>
+                      <span>Specialty +{Math.round(match.scoreComponents.specialty ?? 0)}</span>
+                      <span>Trust +{Math.round(match.scoreComponents.compliance ?? 0)}</span>
+                    </div>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </section>
           </div>
@@ -268,8 +306,8 @@ export default function MobileMechanicMarketplace() {
               </div>
               <dl className="mt-5 space-y-3 text-sm">
                 <div className="flex justify-between gap-4"><dt className="text-slate-500">Location</dt><dd className="text-right font-semibold">{address}</dd></div>
-                <div className="flex justify-between gap-4"><dt className="text-slate-500">Provider</dt><dd className="font-semibold">{selectedProvider.name}</dd></div>
-                <div className="flex justify-between gap-4"><dt className="text-slate-500">Time</dt><dd className="font-semibold">{appointmentTime}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-slate-500">Provider</dt><dd className="font-semibold">{selectedProvider?.name ?? "No eligible provider"}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-slate-500">Time</dt><dd className="font-semibold">{selectedAppointmentTime ?? "Select an eligible provider"}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-slate-500">Fulfillment</dt><dd className="font-semibold">{fulfillment.label}</dd></div>
               </dl>
               <div className="mt-6 border-t border-slate-200 pt-5">
