@@ -7,6 +7,9 @@ import { serviceHistory } from "@/data/history";
 import { providers } from "@/data/providers";
 import { oilOptions, services } from "@/data/services";
 import { initialVehicle } from "@/data/vehicles";
+import pricing from "@/lib/pricing";
+
+const { calculateEstimate, formatEstimateAmount } = pricing;
 
 function currency(amount) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
@@ -38,11 +41,7 @@ export default function MobileMechanicMarketplace() {
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? providers[0];
 
   const estimate = useMemo(() => {
-    const parts = selectedService.id === "oil-change" ? selectedOil.price : 0;
-    const labor = selectedService.price;
-    const travel = fulfillment.fee;
-    const platform = 9;
-    return { parts, labor, travel, platform, total: parts + labor + travel + platform };
+    return calculateEstimate({ service: selectedService, oil: selectedOil, fulfillment });
   }, [selectedService, selectedOil, fulfillment]);
 
   return (
@@ -167,7 +166,12 @@ export default function MobileMechanicMarketplace() {
                     >
                       <div className="flex justify-between gap-3">
                         <h3 className="font-black">{oil.name}</h3>
-                        <span className="font-black">{oil.price ? currency(oil.price) : "TBD"}</span>
+                        <span className="font-black">
+                          {formatEstimateAmount(oil.price, {
+                            tbd: calculateEstimate({ service: selectedService, oil, fulfillment }).partsTbd,
+                            formatter: currency,
+                          })}
+                        </span>
                       </div>
                       <p className="mt-2 text-sm text-slate-600">{oil.note}</p>
                     </button>
@@ -228,10 +232,10 @@ export default function MobileMechanicMarketplace() {
               </dl>
               <div className="mt-6 border-t border-slate-200 pt-5">
                 <div className="flex justify-between text-sm"><span>Labor estimate</span><strong>{currency(estimate.labor)}</strong></div>
-                <div className="mt-2 flex justify-between text-sm"><span>Parts / oil</span><strong>{estimate.parts ? currency(estimate.parts) : "TBD"}</strong></div>
+                <div className="mt-2 flex justify-between text-sm"><span>{estimate.lineItems.find((item) => item.id === "parts")?.label ?? "Parts"}</span><strong>{formatEstimateAmount(estimate.parts, { tbd: estimate.partsTbd, formatter: currency })}</strong></div>
                 <div className="mt-2 flex justify-between text-sm"><span>Travel / coordination</span><strong>{currency(estimate.travel)}</strong></div>
                 <div className="mt-2 flex justify-between text-sm"><span>Platform fee</span><strong>{currency(estimate.platform)}</strong></div>
-                <div className="mt-4 flex justify-between text-xl font-black"><span>Due today</span><span>{selectedOil.id === "recommended" && selectedService.id === "oil-change" ? "TBD" : currency(estimate.total)}</span></div>
+                <div className="mt-4 flex justify-between text-xl font-black"><span>Due today</span><span>{formatEstimateAmount(estimate.total, { tbd: estimate.totalTbd, formatter: currency })}</span></div>
               </div>
               <button type="button" className="mt-6 w-full rounded-2xl bg-blue-700 px-5 py-4 text-base font-black text-white shadow-lg transition hover:bg-blue-800">
                 Confirm appointment
