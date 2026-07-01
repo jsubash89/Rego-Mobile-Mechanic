@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+import { dispatchJobs as seededDispatchJobs } from "@/data/dispatch-jobs";
 import { fulfillmentOptions } from "@/data/fulfillment";
 import { serviceHistory } from "@/data/history";
 import { providerJobs as seededProviderJobs } from "@/data/provider-jobs";
@@ -9,12 +10,14 @@ import { providers } from "@/data/providers";
 import { oilOptions, services } from "@/data/services";
 import { initialVehicle } from "@/data/vehicles";
 import bookingState from "@/lib/booking-state";
+import dispatchOperations from "@/lib/dispatch-operations";
 import localStorageHelpers from "@/lib/local-storage";
 import providerOperations from "@/lib/provider-operations";
 import matching from "@/lib/provider-matching";
 import pricing from "@/lib/pricing";
 
 const { deriveProviderSelection, getProviderMatchingResults } = matching;
+const { DISPATCH_JOB_STATES, MANUAL_ACTIONS, applyDispatchAction, deriveDispatchQueue, filterDispatchJobs, getAssignmentCandidates, getReassignCandidate, groupDispatchJobs } = dispatchOperations;
 const { clearBookingDraft, loadBookingDraft, normalizeBookingDraft, saveBookingDraft } = localStorageHelpers;
 const { calculateEstimate, formatEstimateAmount, getEstimateStatusCopy } = pricing;
 const { canConfirmBooking, getBookingSteps, getConfirmationGuidance, requiresPartsSelection, transitionBooking } = bookingState;
@@ -44,6 +47,8 @@ function Pill({ children, tone = "slate" }) {
     blue: "bg-blue-50 text-blue-700",
     green: "bg-emerald-50 text-emerald-700",
     amber: "bg-amber-50 text-amber-700",
+    orange: "bg-orange-100 text-orange-800 ring-1 ring-orange-200",
+    red: "bg-red-100 text-red-800 ring-1 ring-red-200",
   };
   return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${tones[tone]}`}>{children}</span>;
 }
@@ -63,6 +68,12 @@ export default function MobileMechanicMarketplace() {
   const [providerJobs, setProviderJobs] = useState(seededProviderJobs);
   const [selectedProviderJobId, setSelectedProviderJobId] = useState(seededProviderJobs[0]?.id ?? null);
   const [providerDecisionNotice, setProviderDecisionNotice] = useState("Static provider workbench demo: changes stay in memory only.");
+  const [dispatchJobs, setDispatchJobs] = useState(seededDispatchJobs);
+  const [selectedDispatchJobId, setSelectedDispatchJobId] = useState(seededDispatchJobs[0]?.id ?? null);
+  const [dispatchFilter, setDispatchFilter] = useState("exceptions");
+  const [dispatchFilters, setDispatchFilters] = useState({ status: "all", risk: "all", market: "all", fulfillment: "all", providerId: "all" });
+  const [dispatchGroupBy, setDispatchGroupBy] = useState("status");
+  const [dispatchNotice, setDispatchNotice] = useState("Static dispatcher queue: actions are audited in memory only; no backend, auth, payments, or localStorage PII.");
   const skipNextDraftSave = useRef(false);
 
   useEffect(() => {
@@ -182,6 +193,64 @@ export default function MobileMechanicMarketplace() {
   const queuedEarnings = providerJobs
     .filter((job) => earningsEligibleStatuses.includes(job.status) || payoutQueuedStatuses.includes(job.payout?.status))
     .reduce((sum, job) => sum + (job.estimate?.providerEarnings ?? 0), 0);
+  const dispatchQueue = useMemo(() => deriveDispatchQueue(dispatchJobs), [dispatchJobs]);
+  const dispatchFilterOptions = useMemo(() => {
+    const decorated = dispatchQueue.jobs;
+    const unique = (values) => [...new Set(values.filter(Boolean).map(String))].sort((a, b) => a.localeCompare(b));
+    return {
+      status: unique(decorated.map((job) => job.status)),
+      risk: ["critical", "high", "medium", "low"].filter((risk) => decorated.some((job) => job.risk.level === risk)),
+      market: unique(decorated.map((job) => job.market)),
+      fulfillment: unique(decorated.map((job) => job.fulfillmentId)),
+      providerId: unique(decorated.map((job) => job.providerId ?? "unassigned")),
+    };
+  }, [dispatchQueue]);
+  const activeDispatchFilters = useMemo(() => ({
+    ...(dispatchFilters.status !== "all" ? { status: dispatchFilters.status } : {}),
+    ...(dispatchFilters.risk !== "all" ? { risk: dispatchFilters.risk } : {}),
+    ...(dispatchFilters.market !== "all" ? { market: dispatchFilters.market } : {}),
+    ...(dispatchFilters.fulfillment !== "all" ? { fulfillment: dispatchFilters.fulfillment } : {}),
+    ...(dispatchFilters.providerId !== "all" && dispatchFilters.providerId !== "unassigned" ? { providerId: dispatchFilters.providerId } : {}),
+  }), [dispatchFilters]);
+  const visibleDispatchJobs = useMemo(() => {
+    let jobsToShow;
+    if (dispatchFilter === "exceptions") jobsToShow = dispatchQueue.exceptionJobs;
+    else if (dispatchFilter === "unassigned") jobsToShow = dispatchQueue.jobs.filter((job) => job.isUnassigned);
+    else if (dispatchFilter === "blocked") jobsToShow = dispatchQueue.jobs.filter((job) => job.isBlocked);
+    else jobsToShow = filterDispatchJobs(dispatchJobs, activeDispatchFilters);
+
+    if (dispatchFilters.providerId === "unassigned") return jobsToShow.filter((job) => job.isUnassigned);
+    return filterDispatchJobs(jobsToShow, activeDispatchFilters);
+  }, [activeDispatchFilters, dispatchFilter, dispatchFilters.providerId, dispatchJobs, dispatchQueue]);
+  const visibleDispatchGroups = useMemo(() => groupDispatchJobs(visibleDispatchJobs, dispatchGroupBy), [dispatchGroupBy, visibleDispatchJobs]);
+  const selectedDispatchJob = visibleDispatchJobs.find((job) => job.id === selectedDispatchJobId)
+    ?? dispatchQueue.jobs.find((job) => job.id === selectedDispatchJobId)
+    ?? dispatchQueue.jobs[0];
+  const selectedDispatchCandidates = useMemo(() => (
+    selectedDispatchJob ? getAssignmentCandidates(selectedDispatchJob, providers) : { matches: [], ineligible: [] }
+  ), [selectedDispatchJob]);
+  const bestDispatchCandidate = selectedDispatchCandidates.matches[0];
+  const reassignDispatchCandidate = getReassignCandidate(selectedDispatchJob, selectedDispatchCandidates.matches);
+  const canResolveSelectedDispatchBlocker = selectedDispatchJob?.status === DISPATCH_JOB_STATES.blocked || Boolean(selectedDispatchJob?.blocker);
+  const dispatchActor = { type: "dispatcher", id: "ops-demo", name: "Ops demo dispatcher" };
+
+  function updateDispatchJob(jobId, action, successMessage) {
+    const currentJob = dispatchJobs.find((job) => job.id === jobId);
+    if (!currentJob) {
+      setDispatchNotice("Dispatch job was not found in the static queue.");
+      return;
+    }
+
+    const result = applyDispatchAction(currentJob, { ...action, actor: dispatchActor, timestamp: new Date().toISOString() }, providers);
+    if (!result.ok) {
+      setDispatchNotice(result.blockers.join(" "));
+      return;
+    }
+
+    setDispatchJobs((currentJobs) => currentJobs.map((job) => (job.id === jobId ? result.job : job)));
+    setSelectedDispatchJobId(jobId);
+    setDispatchNotice(successMessage ?? `${action.type.replaceAll("_", " ")} recorded with audit metadata.`);
+  }
 
   function updateProviderJob(jobId, event, successMessage) {
     const currentJob = providerJobs.find((job) => job.id === jobId);
@@ -352,7 +421,7 @@ export default function MobileMechanicMarketplace() {
       </header>
 
       <nav className="mx-auto flex max-w-7xl gap-2 px-6 py-5">
-        {["book", "vehicle", "history", "provider"].map((tab) => (
+        {["book", "vehicle", "history", "provider", "dispatch"].map((tab) => (
           <button
             key={tab}
             type="button"
@@ -654,6 +723,216 @@ export default function MobileMechanicMarketplace() {
               ))}
             </div>
           </div>
+        </section>
+      )}
+
+      {activeTab === "dispatch" && selectedDispatchJob && (
+        <section className="mx-auto grid max-w-7xl gap-6 px-6 pb-16 lg:grid-cols-[1fr_400px]">
+          <div className="space-y-6">
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Dispatch operations</p>
+                  <h2 className="mt-1 text-2xl font-black">Marketplace job queue</h2>
+                  <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-600">
+                    Dispatcher/admin MVP for assignment, SLA risk, blockers, action placeholders, margin visibility, and audit history. Customer addresses and VINs remain masked.
+                  </p>
+                </div>
+                <Pill tone="blue">Static ops demo</Pill>
+              </div>
+              <div className="mt-5 grid gap-3 md:grid-cols-5">
+                <div className="rounded-2xl bg-slate-950 p-4 text-white"><div className="text-2xl font-black">{dispatchQueue.summary.total}</div><div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-300">Active jobs</div></div>
+                <div className="rounded-2xl bg-amber-50 p-4 text-amber-900"><div className="text-2xl font-black">{dispatchQueue.summary.unassigned}</div><div className="text-xs font-bold uppercase tracking-[0.16em]">Unassigned</div></div>
+                <div className="rounded-2xl bg-rose-50 p-4 text-rose-900"><div className="text-2xl font-black">{dispatchQueue.summary.blocked}</div><div className="text-xs font-bold uppercase tracking-[0.16em]">Blocked</div></div>
+                <div className="rounded-2xl bg-orange-50 p-4 text-orange-900"><div className="text-2xl font-black">{dispatchQueue.summary.atRisk}</div><div className="text-xs font-bold uppercase tracking-[0.16em]">At risk</div></div>
+                <div className="rounded-2xl bg-blue-50 p-4 text-blue-900"><div className="text-2xl font-black">{Object.keys(visibleDispatchGroups).length}</div><div className="text-xs font-bold uppercase tracking-[0.16em]">Visible groups</div></div>
+              </div>
+              <div className="mt-5 rounded-2xl bg-blue-50 p-4 text-sm font-semibold text-blue-900">{dispatchNotice}</div>
+              <div className="mt-5 flex flex-wrap gap-2">
+                {[
+                  ["exceptions", "Exceptions"],
+                  ["all", "All jobs"],
+                  ["unassigned", "Unassigned"],
+                  ["blocked", "Blocked"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setDispatchFilter(value)}
+                    className={`rounded-full px-4 py-2 text-sm font-black transition ${dispatchFilter === value ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                {[
+                  ["status", "Status", dispatchFilterOptions.status],
+                  ["risk", "Risk", dispatchFilterOptions.risk],
+                  ["market", "Market", dispatchFilterOptions.market],
+                  ["fulfillment", "Fulfillment", dispatchFilterOptions.fulfillment],
+                  ["providerId", "Provider", dispatchFilterOptions.providerId],
+                ].map(([key, label, options]) => (
+                  <label key={key} className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
+                    {label}
+                    <select
+                      value={dispatchFilters[key]}
+                      onChange={(event) => setDispatchFilters((current) => ({ ...current, [key]: event.target.value }))}
+                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold normal-case tracking-normal text-slate-800 outline-none focus:border-blue-700"
+                    >
+                      <option value="all">All {String(label).toLowerCase()}</option>
+                      {options.map((option) => <option key={option} value={option}>{String(option).replaceAll("_", " ")}</option>)}
+                    </select>
+                  </label>
+                ))}
+                <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
+                  Group queue by
+                  <select
+                    value={dispatchGroupBy}
+                    onChange={(event) => setDispatchGroupBy(event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold normal-case tracking-normal text-slate-800 outline-none focus:border-blue-700"
+                  >
+                    <option value="status">Status</option>
+                    <option value="risk">Risk</option>
+                    <option value="market">Market</option>
+                    <option value="fulfillmentId">Fulfillment</option>
+                    <option value="providerId">Provider</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Queue</p>
+                  <h2 className="mt-1 text-2xl font-black">Jobs requiring operational attention</h2>
+                </div>
+                <Pill tone={visibleDispatchJobs.length ? "amber" : "green"}>{visibleDispatchJobs.length} shown</Pill>
+              </div>
+              <div className="mt-5 space-y-5">
+                {Object.entries(visibleDispatchGroups).map(([groupName, jobs]) => (
+                  <div key={groupName} className="rounded-3xl border border-slate-100 bg-slate-50 p-4">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-black uppercase tracking-[0.16em] text-slate-600">{String(groupName).replaceAll("_", " ")}</h3>
+                      <Pill>{jobs.length} jobs</Pill>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {jobs.map((job) => (
+                        <button
+                          key={job.id}
+                          type="button"
+                          onClick={() => setSelectedDispatchJobId(job.id)}
+                          className={`rounded-2xl border p-5 text-left transition ${selectedDispatchJob.id === job.id ? "border-blue-700 bg-blue-50 shadow-md" : "border-slate-200 bg-white hover:border-slate-400"}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <h3 className="text-lg font-black">{job.serviceName}</h3>
+                              <p className="mt-1 text-sm font-semibold text-slate-600">{job.bookingId} · {job.market} · {job.scheduledWindow}</p>
+                            </div>
+                            <Pill tone={job.risk.level === "low" ? "green" : job.risk.level === "medium" ? "amber" : job.risk.level === "high" ? "orange" : "red"}>{job.risk.level}</Pill>
+                          </div>
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <Pill tone={job.isUnassigned ? "amber" : "green"}>{job.providerName ?? "Unassigned"}</Pill>
+                            <Pill tone={job.isBlocked ? "amber" : "slate"}>{job.status.replaceAll("_", " ")}</Pill>
+                            <Pill>{job.fulfillmentId}</Pill>
+                          </div>
+                          <p className="mt-4 text-sm font-semibold text-slate-600">{job.risk.reasons.join(" ")}</p>
+                          <div className="mt-4 grid grid-cols-3 gap-2 text-xs font-bold text-slate-600">
+                            <span className="rounded-xl bg-slate-50 p-2">Customer {job.maskedCustomer.displayName}</span>
+                            <span className="rounded-xl bg-slate-50 p-2">{job.maskedCustomer.addressSummary}</span>
+                            <span className="rounded-xl bg-slate-50 p-2">{job.maskedVehicle.vinMasked}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {visibleDispatchJobs.length === 0 && (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm font-semibold text-slate-600">No jobs match this deterministic filter.</div>
+                )}
+              </div>
+            </section>
+          </div>
+
+          <aside className="space-y-6">
+            <section className="sticky top-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
+              <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Dispatcher actions</p>
+              <h2 className="mt-2 text-2xl font-black">{selectedDispatchJob.bookingId}</h2>
+              <p className="mt-2 text-sm font-semibold text-slate-600">{selectedDispatchJob.serviceName} · {selectedDispatchJob.maskedVehicle.year} {selectedDispatchJob.maskedVehicle.make} {selectedDispatchJob.maskedVehicle.model}</p>
+              <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+                <p><strong>Status:</strong> {selectedDispatchJob.status.replaceAll("_", " ")}</p>
+                <p className="mt-1"><strong>SLA:</strong> {selectedDispatchJob.sla?.label} · {selectedDispatchJob.risk.reasons.join(" ")}</p>
+                <p className="mt-1"><strong>Masked contact:</strong> {selectedDispatchJob.maskedCustomer.displayName} · {selectedDispatchJob.maskedCustomer.phoneMasked} · {selectedDispatchJob.maskedCustomer.addressSummary}</p>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-slate-200 p-4">
+                <p className="font-black">Assignment candidates</p>
+                <div className="mt-3 space-y-3">
+                  {selectedDispatchCandidates.matches.map((match) => (
+                    <div key={match.providerId} className="rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-900">
+                      <div className="flex items-start justify-between gap-2">
+                        <strong>{match.provider.name}</strong>
+                        <span className="font-black">Score {Math.round(match.score)}</span>
+                      </div>
+                      <p className="mt-1 font-semibold">{match.reasons.slice(0, 3).join(" · ")}</p>
+                    </div>
+                  ))}
+                  {selectedDispatchCandidates.matches.length === 0 && <p className="text-sm font-semibold text-amber-700">No eligible providers for this service/fulfillment right now.</p>}
+                  {selectedDispatchCandidates.ineligible.slice(0, 2).map((match) => (
+                    <p key={match.providerId} className="rounded-xl bg-slate-50 p-2 text-xs font-semibold text-slate-600">{match.provider.name}: {match.exclusions.join(", ")}</p>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-2">
+                <button
+                  type="button"
+                  disabled={!bestDispatchCandidate || Boolean(selectedDispatchJob.providerId)}
+                  onClick={() => updateDispatchJob(selectedDispatchJob.id, { type: MANUAL_ACTIONS.assign, providerId: bestDispatchCandidate.providerId, providerName: bestDispatchCandidate.provider.name, reason: "Assign best eligible provider from static matching results." }, `Assigned ${bestDispatchCandidate.provider.name} with audit metadata.`)}
+                  className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  Assign best eligible provider
+                </button>
+                <button
+                  type="button"
+                  disabled={!reassignDispatchCandidate}
+                  onClick={() => updateDispatchJob(selectedDispatchJob.id, { type: MANUAL_ACTIONS.reassign, providerId: reassignDispatchCandidate.providerId, providerName: reassignDispatchCandidate.provider.name, reason: "Escalated reassignment to protect SLA and service quality." }, `Reassigned to ${reassignDispatchCandidate.provider.name} with explicit escalation reason and audit metadata.`)}
+                  className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-black text-blue-800 transition hover:border-blue-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  Reassign with escalation reason
+                </button>
+                <button type="button" onClick={() => updateDispatchJob(selectedDispatchJob.id, { type: MANUAL_ACTIONS.escalate, reason: "Dispatcher escalated exception for manual follow-up." }, "Escalation placeholder recorded in audit trail.")} className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm font-black text-amber-800 transition hover:border-amber-600">Escalate</button>
+                <button type="button" onClick={() => updateDispatchJob(selectedDispatchJob.id, { type: MANUAL_ACTIONS.cancelReschedule, reason: "Cancel/reschedule placeholder selected; policy workflow pending backend." }, "Cancel/reschedule placeholder recorded in audit trail.")} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-black text-slate-700 transition hover:border-slate-500">Cancel / reschedule placeholder</button>
+                {canResolveSelectedDispatchBlocker && (
+                  <button type="button" onClick={() => updateDispatchJob(selectedDispatchJob.id, { type: MANUAL_ACTIONS.resolveBlocker, reason: "Blocker resolution placeholder completed by dispatcher." }, "Resolve blocker placeholder recorded in audit trail.")} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-black text-emerald-800 transition hover:border-emerald-600">Resolve blocker placeholder</button>
+                )}
+              </div>
+
+              <div className="mt-5 rounded-2xl bg-slate-950 p-4 text-sm text-white">
+                <p className="font-black">Gross margin placeholder</p>
+                <div className="mt-3 space-y-2 font-semibold text-slate-200">
+                  <div className="flex justify-between"><span>Customer total</span><strong>{selectedDispatchJob.margin.customerTotal == null ? "TBD" : currency(selectedDispatchJob.margin.customerTotal)}</strong></div>
+                  <div className="flex justify-between"><span>Provider payout</span><strong>{selectedDispatchJob.margin.providerPayout == null ? "TBD" : currency(selectedDispatchJob.margin.providerPayout)}</strong></div>
+                  <div className="flex justify-between"><span>Platform fee</span><strong>{selectedDispatchJob.margin.platformFee == null ? "TBD" : currency(selectedDispatchJob.margin.platformFee)}</strong></div>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-slate-200 p-4">
+                <p className="font-black">Audit trail</p>
+                <div className="mt-3 space-y-3">
+                  {selectedDispatchJob.auditTrail.map((entry) => (
+                    <div key={entry.id} className="rounded-2xl bg-slate-50 p-3 text-xs font-semibold text-slate-600">
+                      <div className="font-black text-slate-900">{entry.action.replaceAll("_", " ")} · {entry.actorName ?? entry.actorId}</div>
+                      <div>{entry.createdAt}</div>
+                      <div>{entry.oldState} → {entry.newState} · {entry.oldProviderId ?? "none"} → {entry.newProviderId ?? "none"}</div>
+                      <div className="mt-1">{entry.reason}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          </aside>
         </section>
       )}
 
