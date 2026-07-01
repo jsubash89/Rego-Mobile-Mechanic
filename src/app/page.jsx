@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { fulfillmentOptions } from "@/data/fulfillment";
 import { serviceHistory } from "@/data/history";
@@ -8,12 +8,24 @@ import { providers } from "@/data/providers";
 import { oilOptions, services } from "@/data/services";
 import { initialVehicle } from "@/data/vehicles";
 import bookingState from "@/lib/booking-state";
+import localStorageHelpers from "@/lib/local-storage";
 import matching from "@/lib/provider-matching";
 import pricing from "@/lib/pricing";
 
 const { chooseSelectedProvider, getProviderMatchingResults } = matching;
+const { clearBookingDraft, loadBookingDraft, normalizeBookingDraft, saveBookingDraft } = localStorageHelpers;
 const { calculateEstimate, formatEstimateAmount } = pricing;
 const { canConfirmBooking, getBookingState, getBookingSteps, requiresPartsSelection, transitionBooking } = bookingState;
+
+const DEFAULT_BOOKING_DRAFT = {
+  selectedServiceId: "oil-change",
+  fulfillmentId: "mobile",
+  selectedOilId: "recommended",
+  selectedProviderId: "maria",
+  vehicle: { ...initialVehicle },
+  address: "Home · 220 W Kinzie St, Chicago, IL",
+  appointmentTime: "Today 2:30 PM",
+};
 
 function currency(amount) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
@@ -31,14 +43,71 @@ function Pill({ children, tone = "slate" }) {
 
 export default function MobileMechanicMarketplace() {
   const [activeTab, setActiveTab] = useState("book");
-  const [selectedServiceId, setSelectedServiceId] = useState("oil-change");
-  const [fulfillmentId, setFulfillmentId] = useState("mobile");
-  const [selectedOilId, setSelectedOilId] = useState("recommended");
-  const [selectedProviderId, setSelectedProviderId] = useState("maria");
-  const [vehicle, setVehicle] = useState(initialVehicle);
-  const [address, setAddress] = useState("Home · 220 W Kinzie St, Chicago, IL");
-  const [appointmentTime, setAppointmentTime] = useState("Today 2:30 PM");
+  const [selectedServiceId, setSelectedServiceId] = useState(DEFAULT_BOOKING_DRAFT.selectedServiceId);
+  const [fulfillmentId, setFulfillmentId] = useState(DEFAULT_BOOKING_DRAFT.fulfillmentId);
+  const [selectedOilId, setSelectedOilId] = useState(DEFAULT_BOOKING_DRAFT.selectedOilId);
+  const [selectedProviderId, setSelectedProviderId] = useState(DEFAULT_BOOKING_DRAFT.selectedProviderId);
+  const [vehicle, setVehicle] = useState(DEFAULT_BOOKING_DRAFT.vehicle);
+  const [address, setAddress] = useState(DEFAULT_BOOKING_DRAFT.address);
+  const [appointmentTime, setAppointmentTime] = useState(DEFAULT_BOOKING_DRAFT.appointmentTime);
   const [bookingConfirmed, setBookingConfirmed] = useState(false);
+  const [draftHydrated, setDraftHydrated] = useState(false);
+  const skipNextDraftSave = useRef(false);
+
+  useEffect(() => {
+    const persistedDraft = loadBookingDraft();
+
+    if (persistedDraft) {
+      const { draft: normalizedDraft, changed } = normalizeBookingDraft(persistedDraft, {
+        defaultDraft: DEFAULT_BOOKING_DRAFT,
+        services,
+        fulfillmentOptions,
+        oilOptions,
+        providers,
+        chooseSelectedProvider,
+      });
+
+      if (normalizedDraft) {
+        // Loading after mount avoids server/client hydration mismatches for browser-only localStorage.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setSelectedServiceId(normalizedDraft.selectedServiceId);
+        setFulfillmentId(normalizedDraft.fulfillmentId);
+        setSelectedOilId(normalizedDraft.selectedOilId);
+        setSelectedProviderId(normalizedDraft.selectedProviderId);
+        setVehicle(normalizedDraft.vehicle);
+        setAddress(normalizedDraft.address);
+        setAppointmentTime(normalizedDraft.appointmentTime);
+        setBookingConfirmed(false);
+      }
+
+      if (!normalizedDraft || changed) {
+        clearBookingDraft();
+      }
+    }
+
+    setDraftHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!draftHydrated) {
+      return;
+    }
+
+    if (skipNextDraftSave.current) {
+      skipNextDraftSave.current = false;
+      return;
+    }
+
+    saveBookingDraft({
+      vehicle,
+      address,
+      selectedServiceId,
+      fulfillmentId,
+      selectedProviderId,
+      selectedOilId,
+      appointmentTime,
+    });
+  }, [address, appointmentTime, draftHydrated, fulfillmentId, selectedOilId, selectedProviderId, selectedServiceId, vehicle]);
 
   const selectedService = services.find((service) => service.id === selectedServiceId) ?? services[0];
   const fulfillment = fulfillmentOptions.find((option) => option.id === fulfillmentId) ?? fulfillmentOptions[0];
@@ -49,7 +118,9 @@ export default function MobileMechanicMarketplace() {
   const providerMatches = providerMatchingResults.matches;
   const selectedProviderMatch = chooseSelectedProvider({ providers, selectedProviderId, request: matchingRequest });
   const selectedProvider = selectedProviderMatch?.provider ?? null;
-  const selectedAppointmentTime = selectedProviderMatch ? (selectedProviderMatch.earliestSlot ?? appointmentTime) : null;
+  const selectedAppointmentTime = selectedProviderMatch
+    ? (selectedProviderMatch.providerId === selectedProviderId ? appointmentTime : selectedProviderMatch.earliestSlot ?? appointmentTime)
+    : null;
 
   const estimate = useMemo(() => {
     return calculateEstimate({ service: selectedService, oil: selectedOil, fulfillment });
@@ -84,6 +155,19 @@ export default function MobileMechanicMarketplace() {
   function handleConfirmAppointment() {
     const nextBooking = transitionBooking(bookingDraft, "confirm");
     setBookingConfirmed(nextBooking.confirmed === true);
+  }
+
+  function handleResetDraft() {
+    skipNextDraftSave.current = true;
+    clearBookingDraft();
+    setSelectedServiceId(DEFAULT_BOOKING_DRAFT.selectedServiceId);
+    setFulfillmentId(DEFAULT_BOOKING_DRAFT.fulfillmentId);
+    setSelectedOilId(DEFAULT_BOOKING_DRAFT.selectedOilId);
+    setSelectedProviderId(DEFAULT_BOOKING_DRAFT.selectedProviderId);
+    setVehicle({ ...DEFAULT_BOOKING_DRAFT.vehicle });
+    setAddress(DEFAULT_BOOKING_DRAFT.address);
+    setAppointmentTime(DEFAULT_BOOKING_DRAFT.appointmentTime);
+    setBookingConfirmed(false);
   }
 
   return (
@@ -293,8 +377,19 @@ export default function MobileMechanicMarketplace() {
 
           <aside className="space-y-6">
             <section className="sticky top-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
-              <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Booking summary</p>
-              <h2 className="mt-2 text-2xl font-black">{selectedService.name}</h2>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Booking summary</p>
+                  <h2 className="mt-2 text-2xl font-black">{selectedService.name}</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResetDraft}
+                  className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black uppercase tracking-[0.15em] text-slate-600 transition hover:border-blue-700 hover:text-blue-700"
+                >
+                  Reset draft
+                </button>
+              </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 {steps.map((step) => (
                   <Pill key={step.id} tone={step.active ? "blue" : step.complete ? "green" : "slate"}>{step.number}. {step.label}</Pill>
