@@ -7,6 +7,7 @@ import { fulfillmentOptions } from "@/data/fulfillment";
 import { serviceHistory } from "@/data/history";
 import { providerJobs as seededProviderJobs } from "@/data/provider-jobs";
 import { providers } from "@/data/providers";
+import { roadsidePartners, roadsideServiceTypes } from "@/data/roadside-partners";
 import { oilOptions, services } from "@/data/services";
 import { initialVehicle } from "@/data/vehicles";
 import bookingState from "@/lib/booking-state";
@@ -15,6 +16,7 @@ import localStorageHelpers from "@/lib/local-storage";
 import providerOperations from "@/lib/provider-operations";
 import matching from "@/lib/provider-matching";
 import pricing from "@/lib/pricing";
+import roadsideHandoff from "@/lib/roadside-handoff";
 
 const { deriveProviderSelection, getProviderMatchingResults } = matching;
 const { DISPATCH_JOB_STATES, MANUAL_ACTIONS, applyDispatchAction, deriveDispatchQueue, filterDispatchJobs, getAssignmentCandidates, getReassignCandidate, groupDispatchJobs } = dispatchOperations;
@@ -22,6 +24,7 @@ const { clearBookingDraft, loadBookingDraft, normalizeBookingDraft, saveBookingD
 const { calculateEstimate, formatEstimateAmount, getEstimateStatusCopy } = pricing;
 const { canConfirmBooking, getBookingSteps, getConfirmationGuidance, requiresPartsSelection, transitionBooking } = bookingState;
 const { PROVIDER_JOB_STATES, canAcceptProviderJob, canDeclineProviderJob, canProgressProviderJob, getCompletionReadiness, hasPendingCustomerApproval, transitionProviderJob } = providerOperations;
+const { buildRoadsideHandoff, isEmergencyRoadsideIntent } = roadsideHandoff;
 
 const DEFAULT_BOOKING_DRAFT = {
   selectedServiceId: "oil-change",
@@ -74,6 +77,8 @@ export default function MobileMechanicMarketplace() {
   const [dispatchFilters, setDispatchFilters] = useState({ status: "all", risk: "all", market: "all", fulfillment: "all", providerId: "all" });
   const [dispatchGroupBy, setDispatchGroupBy] = useState("status");
   const [dispatchNotice, setDispatchNotice] = useState("Static dispatcher queue: actions are audited in memory only; no backend, auth, payments, or localStorage PII.");
+  const [roadsideIntentId, setRoadsideIntentId] = useState("tow");
+  const [roadsideMarket, setRoadsideMarket] = useState("chicago");
   const skipNextDraftSave = useRef(false);
 
   useEffect(() => {
@@ -156,6 +161,22 @@ export default function MobileMechanicMarketplace() {
   const estimate = useMemo(() => {
     return calculateEstimate({ service: selectedService, oil: selectedOil, fulfillment });
   }, [selectedService, selectedOil, fulfillment]);
+  const roadsideIntent = roadsideServiceTypes.find((intent) => intent.id === roadsideIntentId) ?? roadsideServiceTypes[0];
+  const roadsideMarkets = [
+    { id: "chicago", label: "Chicago (covered)" },
+    { id: "detroit", label: "Detroit (covered by national app)" },
+    { id: "indianapolis", label: "Indianapolis (covered by national app)" },
+    { id: "milwaukee", label: "Milwaukee (covered by national app)" },
+    { id: "national_fallback", label: "National fallback demo (deliberate fallback mode)" },
+    { id: "boise", label: "Boise (unsupported fallback test)" },
+  ];
+  const roadsideHandoffResult = useMemo(() => buildRoadsideHandoff({
+    market: roadsideMarket,
+    serviceType: roadsideIntentId,
+    summary: roadsideIntent?.label,
+    partners: roadsidePartners,
+  }), [roadsideIntent?.label, roadsideIntentId, roadsideMarket]);
+  const roadsideMustHandoff = isEmergencyRoadsideIntent(roadsideIntentId);
 
   const bookingDraft = useMemo(() => ({
     service: selectedService,
@@ -421,7 +442,7 @@ export default function MobileMechanicMarketplace() {
       </header>
 
       <nav className="mx-auto flex max-w-7xl gap-2 px-6 py-5">
-        {["book", "vehicle", "history", "provider", "dispatch"].map((tab) => (
+        {["book", "roadside", "vehicle", "history", "provider", "dispatch"].map((tab) => (
           <button
             key={tab}
             type="button"
@@ -443,6 +464,21 @@ export default function MobileMechanicMarketplace() {
                 {draftNotice}
               </div>
             )}
+            <section className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm text-red-950 shadow-sm">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="font-black uppercase tracking-[0.2em]">Urgent roadside?</p>
+                  <p className="mt-1 font-semibold">Towing, lockout, fuel delivery, jump-start emergency, emergency flat tire, or unsafe-location requests are partner handoffs only. ReGo does not create a normal provider dispatch job for these services.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("roadside")}
+                  className="rounded-full bg-red-700 px-5 py-3 text-sm font-black text-white transition hover:bg-red-800"
+                >
+                  Open partner handoff
+                </button>
+              </div>
+            </section>
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -667,6 +703,138 @@ export default function MobileMechanicMarketplace() {
                   </>
                 )}
               </div>
+            </section>
+          </aside>
+        </section>
+      )}
+
+      {activeTab === "roadside" && (
+        <section className="mx-auto grid max-w-7xl gap-6 px-6 pb-16 lg:grid-cols-[1fr_420px]">
+          <div className="space-y-6">
+            <section className="rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.25em] text-red-600">Emergency roadside partner handoff</p>
+                  <h2 className="mt-2 text-3xl font-black">Triage urgent roadside requests away from ReGo dispatch.</h2>
+                  <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-600">
+                    ReGo Mobile Mechanic does not directly operate towing, lockout, fuel delivery, emergency flat-tire response, emergency battery dispatch, or emergency response. Urgent roadside intents are handed off to third-party partners or safety guidance and do not create a ReGo booking/provider/dispatch job.
+                  </p>
+                </div>
+                <Pill tone="red">Partner-routed only</Pill>
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Triage intent</p>
+                  <h3 className="mt-1 text-2xl font-black">What is happening now?</h3>
+                </div>
+                <select
+                  value={roadsideMarket}
+                  onChange={(event) => setRoadsideMarket(event.target.value)}
+                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold capitalize outline-none focus:border-red-600"
+                >
+                  {roadsideMarkets.map((market) => <option key={market.id} value={market.id}>{market.label}</option>)}
+                </select>
+              </div>
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                {roadsideServiceTypes.map((intent) => {
+                  const emergencyIntent = isEmergencyRoadsideIntent(intent.id);
+                  return (
+                    <button
+                      key={intent.id}
+                      type="button"
+                      onClick={() => setRoadsideIntentId(intent.id)}
+                      className={`rounded-2xl border p-5 text-left transition ${
+                        roadsideIntentId === intent.id
+                          ? emergencyIntent ? "border-red-600 bg-red-50 shadow-md" : "border-blue-700 bg-blue-50 shadow-md"
+                          : "border-slate-200 bg-white hover:border-slate-400"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <h4 className="text-lg font-black">{intent.label}</h4>
+                        <Pill tone={emergencyIntent ? "red" : "blue"}>{emergencyIntent ? "Partner handoff" : "ReGo eligible"}</Pill>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{intent.description}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Partner handoff options</p>
+              <h3 className="mt-1 text-2xl font-black">{roadsideIntent?.label}</h3>
+              <div className={`mt-4 rounded-2xl p-4 text-sm font-semibold leading-6 ${roadsideMustHandoff ? "bg-red-50 text-red-950" : "bg-blue-50 text-blue-950"}`}>
+                {roadsideMustHandoff ? roadsideHandoffResult.guidance : "This selection is non-emergency/mobile-mechanic eligible. Use the normal Book service flow when the vehicle is parked safely and the work can be scheduled."}
+              </div>
+              {roadsideHandoffResult.partnerCandidates.length > 0 ? (
+                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                  {roadsideHandoffResult.partnerCandidates.map((partner) => (
+                    <article key={partner.id} className="rounded-2xl border border-slate-200 p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="text-xl font-black">{partner.name}</h4>
+                          <p className="mt-1 text-sm font-semibold text-slate-600">{partner.coverage}</p>
+                        </div>
+                        <Pill tone="amber">{partner.slaEstimate}</Pill>
+                      </div>
+                      <dl className="mt-4 space-y-2 text-sm">
+                        <div><dt className="font-black text-slate-500">Availability</dt><dd className="font-semibold">{partner.availability}</dd></div>
+                        <div><dt className="font-black text-slate-500">Services</dt><dd className="font-semibold">{partner.serviceTypes.map((type) => type.replaceAll("_", " ")).join(", ")}</dd></div>
+                      </dl>
+                      <div className="mt-4 space-y-2">
+                        {partner.contactChannels.map((channel) => (
+                          <div key={`${partner.id}-${channel.type}-${channel.value}`} className="rounded-xl bg-slate-50 p-3 text-sm font-bold text-slate-700">
+                            {channel.label}: {channel.value}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="mt-4 text-xs font-semibold leading-5 text-slate-500">{partner.disclosure}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : roadsideMustHandoff ? (
+                <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-950">
+                  No partner card is available for this market/service in static MVP data. Use emergency services if unsafe, roadside membership/insurance if available, or ReGo support guidance. No ReGo dispatch job will be created.
+                </div>
+              ) : null}
+            </section>
+          </div>
+
+          <aside className="space-y-6">
+            <section className="sticky top-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
+              <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Handoff audit placeholder</p>
+              <h3 className="mt-2 text-2xl font-black">No ReGo dispatch</h3>
+              <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm font-semibold leading-6 text-slate-700">
+                <p>{roadsideHandoffResult.disclosure}</p>
+                <p className="mt-3">Audit placeholder stores only non-PII handoff metadata such as market, service type, timestamp, and partner candidate IDs. Do not store full address, VIN, or phone in localStorage or partner handoff data.</p>
+              </div>
+              <dl className="mt-5 space-y-3 text-sm">
+                <div className="flex justify-between gap-4"><dt className="text-slate-500">Route</dt><dd className="font-black">{roadsideHandoffResult.route.replaceAll("_", " ")}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-slate-500">Market</dt><dd className="font-black capitalize">{roadsideHandoffResult.market.replaceAll("_", " ")}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-slate-500">Booking allowed</dt><dd className="font-black">{roadsideHandoffResult.bookingAllowed ? "Yes" : "No"}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-slate-500">Dispatch job</dt><dd className="font-black">None</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-slate-500">Provider assignment</dt><dd className="font-black">None</dd></div>
+              </dl>
+              {roadsideHandoffResult.auditEvent && (
+                <div className="mt-5 rounded-2xl border border-slate-200 p-4 text-xs font-semibold leading-5 text-slate-600">
+                  <div className="font-black text-slate-900">{roadsideHandoffResult.auditEvent.type}</div>
+                  <div>ID: {roadsideHandoffResult.auditEvent.id}</div>
+                  <div>Partner candidates: {roadsideHandoffResult.auditEvent.partnerCandidateIds.join(", ") || "none"}</div>
+                  <div>PII stored: {String(roadsideHandoffResult.auditEvent.piiStored)}</div>
+                </div>
+              )}
+              {!roadsideMustHandoff && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("book")}
+                  className="mt-5 w-full rounded-2xl bg-blue-700 px-5 py-4 text-base font-black text-white shadow-lg transition hover:bg-blue-800"
+                >
+                  Continue to ReGo booking
+                </button>
+              )}
             </section>
           </aside>
         </section>
