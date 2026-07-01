@@ -69,16 +69,46 @@ labor, parts, fulfillment fee, platform fee, tax/discounts later, TBD rules
 - External integration failure once integrations exist.
 
 ## Business rules
-Pricing is deterministic, tested, auditable, and explains TBD/changed estimates.
+- Pricing is deterministic, tested, auditable, and explains TBD/changed estimates.
+- MVP estimates use static/curated service pricing bands plus provider confirmation for uncertain oil, parts fitment, labor, or field-condition inputs.
+- Exact oil viscosity/capacity/filter, battery group/CCA, and brake part fitment must not be treated as automatically known from VIN/year/make/model alone.
+- Quote types are `fixed`, `range`, and `tbd_provider_confirmed`.
+- Provider confirmation is required before final quote/service when `requiresFluidSpec` or `requiresPartsFitment` is true and no high-confidence curated source exists.
+- Commercial oil/maintenance/parts/labor APIs are deferred to P1/P2 unless explicitly licensed.
+- See `../../research/automotive-data-sources.md` for source policy.
 
 ## Data model
-Define or reference entities used by this feature. Minimum fields should include stable IDs, actor IDs, timestamps, status, and audit metadata. See `../../architecture/state-machines.md` where lifecycle state is involved.
+Estimate inputs should include:
+
+- `serviceId`
+- `vehicleId`
+- `fulfillmentMode`
+- `marketId`
+- `providerId`
+- `pricingVersion`
+- `quoteType`: `fixed`, `range`, or `tbd_provider_confirmed`
+- `requiresFluidSpec`
+- `requiresPartsFitment`
+- `providerConfirmationRequired`
+- `lineItems`: labor, parts, travel/mobile fee, platform fee, taxes/discounts later
+- `sources`: source name/type/url/version/confidence/verifiedAt
+- audit timestamps
+
+See `../../architecture/state-machines.md` where lifecycle state is involved.
 
 ## State machine
 If this feature changes booking/job/payment/report state, use the canonical states in `../../architecture/state-machines.md` and document any feature-specific guards.
 
 ## API contract
-Document endpoints before implementation. Include request shape, response shape, errors, auth, idempotency, and side effects.
+MVP estimate calculation can begin as a pure library function. When wrapped by an API, document:
+
+- `POST /api/estimates/preview`
+- Request: service, vehicle, fulfillment, market, provider, selected options.
+- Response: line items, total/range/TBD state, source/confidence metadata, provider-confirmation requirements, and customer-facing explanation copy.
+- Errors: unsupported service, unsupported vehicle, missing fulfillment/provider, stale pricing table.
+- Idempotency: preview has no side effects; booking/authorization endpoints need idempotency keys later.
+
+External oil/parts/labor APIs are not P0 dependencies. Tests must use deterministic fixtures/mocks.
 
 ## UI requirements
 - Desktop, tablet, and mobile states.
@@ -106,6 +136,9 @@ Define event names, triggers, required properties, and forbidden PII before inst
 - Given invalid/missing prerequisites, when the actor tries to proceed, then the app blocks and explains why.
 - Given stale or conflicting data, when the actor submits, then the app prevents unsafe writes and offers recovery.
 - Given unauthorized access, when actor opens or calls the feature, then access is denied.
+- Given a supported fixed-price service, when inputs are complete, then the estimate returns deterministic line items and source metadata.
+- Given oil/parts fitment is uncertain, when calculating an estimate, then quote type is `tbd_provider_confirmed` or a range and the UI explains provider confirmation.
+- Given pricing rules change after quote creation, when viewing the historical quote, then original quote inputs/version remain explainable.
 
 ## Test plan
 Unit:
@@ -126,9 +159,16 @@ Accessibility:
 
 Security/privacy:
 - Role-scoped data access and sensitive-data masking.
+- Quote source/version auditability without exposing unnecessary VIN/customer data.
+
+External data:
+- Mock oil/parts/labor sources if/when added.
+- Confirm CI does not call live commercial or NHTSA APIs.
 
 ## Dependencies
-List upstream feature/data/API dependencies here before implementation.
+- `../../research/automotive-data-sources.md`
+- curated service catalog and pricing bands
+- provider-confirmed data workflow for oil/parts/labor uncertainty
 
 ## Open questions
 - What parts of this feature are required for MVP vs later?

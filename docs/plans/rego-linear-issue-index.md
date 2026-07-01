@@ -60,6 +60,7 @@ This index maps the buildable repository documents to their Linear tracking issu
 - JS-832 — Milestone: Build admin/dispatch operations MVP — https://linear.app/js-ventures/issue/JS-832/milestone-build-admindispatch-operations-mvp
 - JS-833 — Milestone: Implement partner-routed emergency roadside handoff — https://linear.app/js-ventures/issue/JS-833/milestone-implement-partner-routed-emergency-roadside-handoff
 - JS-834 — Milestone: Add auth/RBAC, privacy boundaries, and deployment readiness checklist — https://linear.app/js-ventures/issue/JS-834/milestone-add-authrbac-privacy-boundaries-and-deployment-readiness
+- JS-835 — Milestone: Automotive data source strategy and MVP integration policy — https://linear.app/js-ventures/issue/JS-835/milestone-automotive-data-source-strategy-and-mvp-integration-policy
 
 ## Operating rule
 

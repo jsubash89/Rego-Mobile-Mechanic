@@ -69,16 +69,49 @@ vehicle CRUD, VIN/mileage validation, default vehicle, address
 - External integration failure once integrations exist.
 
 ## Business rules
-VIN is validated/masked; mileage/year are validated; edits update booking summary and persist.
+- VIN is validated/masked; mileage/year are validated; edits update booking summary and persist.
+- MVP vehicle identity uses NHTSA vPIC as the preferred open/free VIN decode and normalization source. See `../../research/automotive-data-sources.md`.
+- VIN decode failure must not block booking; customer can enter year/make/model/mileage manually.
+- vPIC trim/engine fields are useful hints but are not sufficient by themselves for automated oil/parts fitment.
+- Recall checks, when present, are informational and non-blocking; warranty/recall work should route the customer toward dealership/OEM confirmation.
+- Store source/confidence metadata for decoded or corrected vehicle data.
+- Mask full VIN in UI/admin/logs except where full VIN is operationally required.
 
 ## Data model
-Define or reference entities used by this feature. Minimum fields should include stable IDs, actor IDs, timestamps, status, and audit metadata. See `../../architecture/state-machines.md` where lifecycle state is involved.
+Minimum vehicle fields:
+
+- `id`
+- `vin` / `vinLast4`
+- `year`
+- `make`
+- `model`
+- `trim`
+- `engine`
+- `fuelType`
+- `driveType`
+- `bodyClass`
+- `mileage`
+- `source`: `manual`, `nhtsa_vpic`, `curated`, or `provider_corrected`
+- `decodeConfidence`: `high`, `medium`, `low`, or `unknown`
+- `decodedAt`
+- audit timestamps
+
+See `../../research/automotive-data-sources.md` for the vehicle identity source policy and `../../architecture/state-machines.md` where lifecycle state is involved.
 
 ## State machine
 If this feature changes booking/job/payment/report state, use the canonical states in `../../architecture/state-machines.md` and document any feature-specific guards.
 
 ## API contract
-Document endpoints before implementation. Include request shape, response shape, errors, auth, idempotency, and side effects.
+MVP can begin with local/static data and mocked external calls. When implemented, VIN decode should be represented by an internal boundary such as:
+
+- `POST /api/vehicles/decode-vin`
+- Request: `{ vin: string, modelYear?: number }`
+- Response: normalized vehicle fields plus `source`, `decodeConfidence`, and raw-source metadata needed for audit/debug.
+- External source: NHTSA `DecodeVinValuesExtended` with `format=json`.
+- Errors: invalid VIN, unavailable source, ambiguous decode.
+- Side effects: none unless explicitly saving the decoded vehicle.
+
+Tests must mock NHTSA responses; CI must not depend on live NHTSA uptime.
 
 ## UI requirements
 - Desktop, tablet, and mobile states.
@@ -100,12 +133,17 @@ Define event names, triggers, required properties, and forbidden PII before inst
 - Enforce role permissions server-side.
 - Mask sensitive vehicle/customer/payment data where not needed.
 - Do not log VIN, address, payment, or private messages into analytics/errors.
+- Treat VIN plus customer identity/location/service history as sensitive data.
+- Store and display `vinLast4` where possible; require explicit operational need for full VIN display.
 
 ## Acceptance criteria
 - Given valid prerequisites, when the actor completes the primary flow, then the expected state is created or updated.
 - Given invalid/missing prerequisites, when the actor tries to proceed, then the app blocks and explains why.
 - Given stale or conflicting data, when the actor submits, then the app prevents unsafe writes and offers recovery.
 - Given unauthorized access, when actor opens or calls the feature, then access is denied.
+- Given a valid VIN and available decode source, when the user decodes it, then the app stores normalized vehicle fields with source/confidence metadata.
+- Given VIN decode fails or is ambiguous, when the user continues, then the app offers manual entry and marks confidence accordingly.
+- Given recall data is unavailable, when the user books service, then booking can continue with a non-blocking recall-unavailable message.
 
 ## Test plan
 Unit:
@@ -126,9 +164,16 @@ Accessibility:
 
 Security/privacy:
 - Role-scoped data access and sensitive-data masking.
+- VIN masking and no raw VIN in logs/analytics.
+
+External data:
+- Mock valid, invalid, ambiguous, and unavailable vPIC responses.
+- Do not call live NHTSA in CI.
 
 ## Dependencies
-List upstream feature/data/API dependencies here before implementation.
+- `../../research/automotive-data-sources.md`
+- NHTSA vPIC for optional live VIN decode.
+- Curated seed vehicle data and manual fallback for MVP.
 
 ## Open questions
 - What parts of this feature are required for MVP vs later?

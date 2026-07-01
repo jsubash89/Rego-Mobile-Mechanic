@@ -27,7 +27,7 @@ The loop must survive context resets. Durable state lives in repo artifacts, com
 
 ## Market research inputs
 
-Read `docs/research/market-research.md` before refining any P0 feature doc or implementation task. It adds competitor benchmarks, customer pain points, provider operations constraints, pricing/estimate requirements, VIN/parts fitment, recall/warranty routing, and compliance implications.
+Read `docs/research/market-research.md` and `docs/research/automotive-data-sources.md` before refining any P0 feature doc or implementation task. Market research adds competitor benchmarks, customer pain points, provider operations constraints, pricing/estimate requirements, VIN/parts fitment, recall/warranty routing, and compliance implications. Automotive data-source research defines what should be live API vs static/curated/provider-confirmed for MVP.
 
 Research-driven product requirements now emphasized:
 - VIN/plate-first vehicle profile and recall/dealer routing.
@@ -36,6 +36,10 @@ Research-driven product requirements now emphasized:
 - Provider trust/compliance: ASE/certifications, insurance COI, licenses, background/verification, warranty.
 - Dispatch logic must account for travel time, buffers, route density, parts readiness, and SLA risk.
 - Diagnostic flow should separate “I know what I need” from “something is wrong.”
+- MVP vehicle identity should use NHTSA vPIC for VIN decode and manual fallback for unsupported/failed decode.
+- MVP recall checks should use NHTSA only as an informational/non-blocking safety signal.
+- MVP oil, parts fitment, labor time, and maintenance intervals should use curated seed data plus provider confirmation; broad commercial automation is P1/P2.
+- Tests must mock external APIs and must not depend on live NHTSA/vendor uptime in CI.
 
 ---
 
@@ -72,18 +76,22 @@ Files:
 - Create: `src/data/providers.js`
 - Create: `src/data/vehicles.js`
 - Create: `src/data/fulfillment.js`
+- Create: `src/data/vehicle-data-sources.js`
 - Modify: `src/app/page.jsx`
 
 Steps:
 1. Move services, fulfillment options, oil options, providers, initial vehicle, and history out of page.
 2. Export named constants.
-3. Keep the UI behavior unchanged.
-4. Run `npm run build`.
-5. Commit with `refactor: extract mobile mechanic domain data`.
+3. Add source metadata for NHTSA vPIC, NHTSA recalls, curated seed data, provider-confirmed data, and deferred commercial fitment/labor sources.
+4. Add service data flags for `requiresFluidSpec`, `requiresPartsFitment`, `providerConfirmationRequired`, and `quoteType`.
+5. Keep the UI behavior unchanged.
+6. Run `npm run build`.
+7. Commit with `refactor: extract mobile mechanic domain data`.
 
 Verification:
 - Build passes.
 - UI still shows all services, fulfillment options, providers, vehicle, and history.
+- Source metadata reflects `docs/research/automotive-data-sources.md` and does not imply automated oil/parts fitment in MVP.
 
 ---
 
