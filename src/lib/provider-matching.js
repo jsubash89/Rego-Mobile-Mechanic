@@ -265,11 +265,29 @@ function chooseSelectedProvider({ providers, selectedProviderId, request } = {})
   return matches[0] ?? null;
 }
 
+function deriveProviderSelection({ providers, selectedProviderId, appointmentTime, request } = {}) {
+  const selectedMatch = chooseSelectedProvider({ providers, selectedProviderId, request });
+  const selectedProviderChanged = (selectedMatch?.providerId ?? null) !== (selectedProviderId ?? null);
+  const nextAppointmentTime = selectedMatch
+    ? (selectedProviderChanged ? selectedMatch.earliestSlot : appointmentTime || selectedMatch.earliestSlot)
+    : null;
+
+  return {
+    match: selectedMatch,
+    provider: selectedMatch?.provider ?? null,
+    selectedProviderId: selectedMatch?.providerId ?? null,
+    appointmentTime: nextAppointmentTime ?? null,
+    changed: selectedProviderChanged || nextAppointmentTime !== (appointmentTime ?? null),
+    noEligibleProviders: !selectedMatch,
+  };
+}
+
 module.exports = {
   DEFAULT_MAX_TRAVEL_MILES,
   explainEligibility,
   getProviderMatchingResults,
   rankProviderMatches,
   chooseSelectedProvider,
+  deriveProviderSelection,
   serviceNeedsProviderConfirmation,
 };

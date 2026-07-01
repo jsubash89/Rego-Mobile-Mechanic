@@ -4,8 +4,11 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const {
-  chooseSelectedProvider,
+  deriveProviderSelection,
 } = require("./provider-matching.js");
+const {
+  canConfirmBooking,
+} = require("./booking-state.js");
 const {
   BOOKING_DRAFT_STORAGE_KEY,
   clearBookingDraft,
@@ -183,7 +186,7 @@ describe("local storage helpers", () => {
           compliance: { providerConfirmedParts: true },
         },
       ],
-      chooseSelectedProvider,
+      deriveProviderSelection,
     });
 
     assert.equal(changed, true);
@@ -191,9 +194,159 @@ describe("local storage helpers", () => {
     assert.equal(draft.fulfillmentId, "shop");
     assert.equal(draft.selectedOilId, "recommended");
     assert.equal(draft.selectedProviderId, "oak");
+    assert.equal(draft.appointmentTime, "Today 4:00 PM");
     assert.equal(draft.address, defaultDraft.address);
     assert.equal(draft.vehicle.vin, defaultDraft.vehicle.vin);
     assert.equal(draft.vehicle.vinLast6, undefined);
+  });
+
+  it("normalizes stale persisted provider with fallback provider earliest slot", () => {
+    const defaultDraft = {
+      selectedServiceId: "oil-change",
+      fulfillmentId: "shop",
+      selectedOilId: "recommended",
+      selectedProviderId: "maria",
+      vehicle: { year: "2021", make: "Toyota", model: "RAV4", vin: "JTMW1RFV1MD000000" },
+      address: "Home · 220 W Kinzie St, Chicago, IL",
+      appointmentTime: "Today 2:30 PM",
+    };
+    const { draft, changed } = normalizeBookingDraft({
+      selectedServiceId: "oil-change",
+      fulfillmentId: "shop",
+      selectedOilId: "recommended",
+      selectedProviderId: "maria",
+      vehicle: { year: "2021", make: "Toyota", model: "RAV4" },
+      appointmentTime: "Stale persisted slot",
+    }, {
+      defaultDraft,
+      services: [{ id: "oil-change", name: "Oil", requiresPartsFitment: true }],
+      fulfillmentOptions: [{ id: "mobile" }, { id: "shop" }],
+      oilOptions: [{ id: "recommended" }],
+      providers: [
+        {
+          id: "maria",
+          serviceIds: ["oil-change"],
+          fulfillmentModes: ["mobile"],
+          availability: { available: true, earliestSlot: "Today 2:30 PM", rank: 0 },
+          distance: 3,
+          providerConfirmedParts: true,
+        },
+        {
+          id: "oak",
+          serviceIds: ["oil-change"],
+          fulfillmentModes: ["shop"],
+          availability: { available: true, earliestSlot: "Tomorrow 10:00 AM", rank: 0 },
+          distance: 0,
+          providerConfirmedParts: true,
+        },
+      ],
+      deriveProviderSelection,
+    });
+
+    assert.equal(changed, true);
+    assert.equal(draft.selectedProviderId, "oak");
+    assert.equal(draft.appointmentTime, "Tomorrow 10:00 AM");
+  });
+
+  it("normalizes stale persisted appointment time to same eligible provider earliest slot", () => {
+    const defaultDraft = {
+      selectedServiceId: "oil-change",
+      fulfillmentId: "mobile",
+      selectedOilId: "recommended",
+      selectedProviderId: "maria",
+      vehicle: { year: "2021", make: "Toyota", model: "RAV4", vin: "JTMW1RFV1MD000000" },
+      address: "Home · 220 W Kinzie St, Chicago, IL",
+      appointmentTime: "Today 2:30 PM",
+    };
+    const { draft, changed } = normalizeBookingDraft({
+      selectedServiceId: "oil-change",
+      fulfillmentId: "mobile",
+      selectedOilId: "recommended",
+      selectedProviderId: "maria",
+      vehicle: { year: "2021", make: "Toyota", model: "RAV4" },
+      appointmentTime: "Stale persisted slot",
+    }, {
+      defaultDraft,
+      services: [{ id: "oil-change", name: "Oil", requiresPartsFitment: true }],
+      fulfillmentOptions: [{ id: "mobile" }, { id: "shop" }],
+      oilOptions: [{ id: "recommended" }],
+      providers: [
+        {
+          id: "maria",
+          serviceIds: ["oil-change"],
+          fulfillmentModes: ["mobile"],
+          availability: { available: true, earliestSlot: "Today 2:30 PM", rank: 0 },
+          distance: 3,
+          providerConfirmedParts: true,
+        },
+        {
+          id: "oak",
+          serviceIds: ["oil-change"],
+          fulfillmentModes: ["shop"],
+          availability: { available: true, earliestSlot: "Tomorrow 10:00 AM", rank: 0 },
+          distance: 0,
+          providerConfirmedParts: true,
+        },
+      ],
+      deriveProviderSelection,
+    });
+
+    assert.equal(changed, true);
+    assert.equal(draft.selectedProviderId, "maria");
+    assert.equal(draft.appointmentTime, "Today 2:30 PM");
+  });
+
+  it("clears persisted provider and appointment time when no eligible provider remains", () => {
+    const service = { id: "oil-change", name: "Oil", requiresPartsFitment: true };
+    const fulfillment = { id: "mobile" };
+    const oil = { id: "recommended" };
+    const estimate = { total: 125, lineItems: [{ label: "Oil change", amount: 125 }] };
+    const defaultDraft = {
+      selectedServiceId: service.id,
+      fulfillmentId: fulfillment.id,
+      selectedOilId: oil.id,
+      selectedProviderId: "maria",
+      vehicle: { year: "2021", make: "Toyota", model: "RAV4", vin: "JTMW1RFV1MD000000" },
+      address: "Home · 220 W Kinzie St, Chicago, IL",
+      appointmentTime: "Today 2:30 PM",
+    };
+    const { draft, changed } = normalizeBookingDraft({
+      selectedServiceId: service.id,
+      fulfillmentId: fulfillment.id,
+      selectedOilId: oil.id,
+      selectedProviderId: "maria",
+      vehicle: { year: "2021", make: "Toyota", model: "RAV4" },
+      appointmentTime: "Today 2:30 PM",
+    }, {
+      defaultDraft,
+      services: [service],
+      fulfillmentOptions: [fulfillment],
+      oilOptions: [oil],
+      providers: [
+        {
+          id: "maria",
+          serviceIds: ["brakes"],
+          fulfillmentModes: ["shop"],
+          availability: { available: false, earliestSlot: null, rank: 0 },
+          distance: 3,
+          providerConfirmedParts: true,
+        },
+      ],
+      deriveProviderSelection,
+    });
+
+    assert.equal(changed, true);
+    assert.equal(draft.selectedProviderId, null);
+    assert.equal(draft.appointmentTime, null);
+    assert.equal(canConfirmBooking({
+      service,
+      fulfillment,
+      oil,
+      provider: null,
+      vehicle: draft.vehicle,
+      appointmentTime: draft.appointmentTime,
+      estimate,
+    }), false);
   });
 
   it("sanitizes non-object or empty draft input", () => {

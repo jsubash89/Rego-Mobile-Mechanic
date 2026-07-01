@@ -3,7 +3,7 @@ import test from "node:test";
 
 import pricing from "./pricing.js";
 
-const { calculateEstimate, formatEstimateAmount, QUOTE_TYPES } = pricing;
+const { calculateEstimate, formatEstimateAmount, getEstimateStatusCopy, QUOTE_TYPES } = pricing;
 
 const oilChange = {
   id: "oil-change",
@@ -104,4 +104,27 @@ test("non-oil fixed service uses service labor, fees, no oil parts, and determin
   assert.equal(estimate.total, 182);
   assert.equal(estimate.totalTbd, false);
   assert.equal(estimate.quoteType, QUOTE_TYPES.fixed);
+});
+
+test("estimate status copy explains provider-confirmed TBD totals", () => {
+  const estimate = calculateEstimate({
+    service: oilChange,
+    oil: { id: "recommended", name: "Mechanic recommendation", price: 0 },
+    fulfillment: mobileFulfillment,
+  });
+  const copy = getEstimateStatusCopy(estimate, { service: oilChange, provider: { name: "Maria Rodriguez" } });
+
+  assert.equal(copy.label, "Provider-confirmed estimate");
+  assert.equal(copy.totalLabel, "TBD until provider confirms");
+  assert.match(copy.summary, /Maria Rodriguez/);
+  assert.match(copy.summary, /oil spec/);
+  assert.match(copy.summary, /before any charge is captured/);
+});
+
+test("estimate status copy distinguishes fixed estimates", () => {
+  const estimate = calculateEstimate({ service: inspection, fulfillment: shopFulfillment });
+  const copy = getEstimateStatusCopy(estimate, { service: inspection, provider: { name: "Oak Street Auto" } });
+
+  assert.equal(copy.label, "Fixed MVP estimate");
+  assert.equal(copy.totalLabel, "Due today");
 });

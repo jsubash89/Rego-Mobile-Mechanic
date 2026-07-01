@@ -81,9 +81,52 @@ function formatEstimateAmount(amount, { tbd = false, formatter } = {}) {
   return format(asMoneyAmount(amount));
 }
 
+function getEstimateStatusCopy(estimate, { service, provider } = {}) {
+  if (!estimate) {
+    return {
+      label: "Estimate unavailable",
+      summary: "Choose a service and fulfillment option to see the MVP estimate.",
+      totalLabel: "TBD",
+    };
+  }
+
+  const providerName = provider?.name ?? "the selected provider";
+
+  if (estimate.totalTbd || estimate.partsTbd || estimate.quoteType === QUOTE_TYPES.tbdProviderConfirmed) {
+    return {
+      label: "Provider-confirmed estimate",
+      summary: `${providerName} will confirm exact ${service?.requiresFluidSpec ? "oil spec, filter, " : ""}parts, and arrival window before any charge is captured. Labor, travel, and platform fees are shown now; final due today remains TBD until confirmation.`,
+      totalLabel: "TBD until provider confirms",
+    };
+  }
+
+  if (estimate.quoteType === QUOTE_TYPES.range) {
+    return {
+      label: "Estimated range",
+      summary: `${providerName} will verify parts and scope before dispatch. Any change from this estimate requires customer approval.`,
+      totalLabel: "Estimate before provider confirmation",
+    };
+  }
+
+  if (estimate.providerConfirmationRequired) {
+    return {
+      label: "Provider confirmation next",
+      summary: `${providerName} will confirm availability and arrival window before any charge is captured.`,
+      totalLabel: "Estimated due today",
+    };
+  }
+
+  return {
+    label: "Fixed MVP estimate",
+    summary: "This static MVP estimate is ready to confirm. No payment is captured in the prototype.",
+    totalLabel: "Due today",
+  };
+}
+
 module.exports = {
   DEFAULT_PLATFORM_FEE,
   QUOTE_TYPES,
   calculateEstimate,
   formatEstimateAmount,
+  getEstimateStatusCopy,
 };

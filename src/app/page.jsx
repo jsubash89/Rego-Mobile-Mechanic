@@ -12,10 +12,10 @@ import localStorageHelpers from "@/lib/local-storage";
 import matching from "@/lib/provider-matching";
 import pricing from "@/lib/pricing";
 
-const { chooseSelectedProvider, getProviderMatchingResults } = matching;
+const { deriveProviderSelection, getProviderMatchingResults } = matching;
 const { clearBookingDraft, loadBookingDraft, normalizeBookingDraft, saveBookingDraft } = localStorageHelpers;
-const { calculateEstimate, formatEstimateAmount } = pricing;
-const { canConfirmBooking, getBookingState, getBookingSteps, requiresPartsSelection, transitionBooking } = bookingState;
+const { calculateEstimate, formatEstimateAmount, getEstimateStatusCopy } = pricing;
+const { canConfirmBooking, getBookingSteps, getConfirmationGuidance, requiresPartsSelection, transitionBooking } = bookingState;
 
 const DEFAULT_BOOKING_DRAFT = {
   selectedServiceId: "oil-change",
@@ -52,6 +52,7 @@ export default function MobileMechanicMarketplace() {
   const [appointmentTime, setAppointmentTime] = useState(DEFAULT_BOOKING_DRAFT.appointmentTime);
   const [bookingConfirmed, setBookingConfirmed] = useState(false);
   const [draftHydrated, setDraftHydrated] = useState(false);
+  const [draftNotice, setDraftNotice] = useState("Loading saved draft…");
   const skipNextDraftSave = useRef(false);
 
   useEffect(() => {
@@ -64,7 +65,7 @@ export default function MobileMechanicMarketplace() {
         fulfillmentOptions,
         oilOptions,
         providers,
-        chooseSelectedProvider,
+        deriveProviderSelection,
       });
 
       if (normalizedDraft) {
@@ -78,11 +79,17 @@ export default function MobileMechanicMarketplace() {
         setAddress(normalizedDraft.address);
         setAppointmentTime(normalizedDraft.appointmentTime);
         setBookingConfirmed(false);
+        setDraftNotice(changed ? "Restored a saved draft and refreshed stale selections." : "Restored your saved draft. Private VIN and address details were not stored.");
       }
 
       if (!normalizedDraft || changed) {
         clearBookingDraft();
+        if (!normalizedDraft) {
+          setDraftNotice("Saved draft could not be restored, so the default booking is shown.");
+        }
       }
+    } else {
+      setDraftNotice("Draft saves locally on this device with VIN and address minimized.");
     }
 
     setDraftHydrated(true);
@@ -116,11 +123,14 @@ export default function MobileMechanicMarketplace() {
   const matchingRequest = useMemo(() => ({ service: selectedService, fulfillment }), [selectedService, fulfillment]);
   const providerMatchingResults = useMemo(() => getProviderMatchingResults(providers, matchingRequest), [matchingRequest]);
   const providerMatches = providerMatchingResults.matches;
-  const selectedProviderMatch = chooseSelectedProvider({ providers, selectedProviderId, request: matchingRequest });
-  const selectedProvider = selectedProviderMatch?.provider ?? null;
-  const selectedAppointmentTime = selectedProviderMatch
-    ? (selectedProviderMatch.providerId === selectedProviderId ? appointmentTime : selectedProviderMatch.earliestSlot ?? appointmentTime)
-    : null;
+  const providerSelection = useMemo(() => deriveProviderSelection({
+    providers,
+    selectedProviderId,
+    appointmentTime,
+    request: matchingRequest,
+  }), [appointmentTime, matchingRequest, selectedProviderId]);
+  const selectedProvider = providerSelection.provider;
+  const selectedAppointmentTime = providerSelection.appointmentTime;
 
   const estimate = useMemo(() => {
     return calculateEstimate({ service: selectedService, oil: selectedOil, fulfillment });
@@ -138,13 +148,48 @@ export default function MobileMechanicMarketplace() {
   }), [selectedService, fulfillment, selectedOil, selectedProvider, vehicle, selectedAppointmentTime, estimate, bookingConfirmed, partsSelectionRequired]);
   const steps = getBookingSteps(bookingDraft);
   const stepByState = Object.fromEntries(steps.map((step) => [step.state, step]));
-  const currentBookingState = getBookingState(bookingDraft);
   const confirmationReady = canConfirmBooking(bookingDraft);
+  const confirmationGuidance = getConfirmationGuidance(bookingDraft);
+  const estimateCopy = getEstimateStatusCopy(estimate, { service: selectedService, provider: selectedProvider });
   const confirmationButtonLabel = bookingConfirmed ? "Appointment confirmed" : confirmationReady ? "Confirm appointment" : "Complete booking details";
 
   function updateDraft(updater) {
     setBookingConfirmed(false);
     updater();
+  }
+
+  function handleServiceChange(serviceId) {
+    updateDraft(() => {
+      setSelectedServiceId(serviceId);
+      const nextService = services.find((service) => service.id === serviceId) ?? null;
+      const nextFulfillment = fulfillmentOptions.find((option) => option.id === fulfillmentId) ?? null;
+      const nextSelection = deriveProviderSelection({
+        providers,
+        selectedProviderId,
+        appointmentTime,
+        request: { service: nextService, fulfillment: nextFulfillment },
+      });
+      setSelectedProviderId(nextSelection.selectedProviderId);
+      setAppointmentTime(nextSelection.appointmentTime);
+      if (!requiresPartsSelection(nextService)) {
+        setSelectedOilId(DEFAULT_BOOKING_DRAFT.selectedOilId);
+      }
+    });
+  }
+
+  function handleFulfillmentChange(nextFulfillmentId) {
+    updateDraft(() => {
+      setFulfillmentId(nextFulfillmentId);
+      const nextFulfillment = fulfillmentOptions.find((option) => option.id === nextFulfillmentId) ?? null;
+      const nextSelection = deriveProviderSelection({
+        providers,
+        selectedProviderId,
+        appointmentTime,
+        request: { service: selectedService, fulfillment: nextFulfillment },
+      });
+      setSelectedProviderId(nextSelection.selectedProviderId);
+      setAppointmentTime(nextSelection.appointmentTime);
+    });
   }
 
   function stepEyebrow(state) {
@@ -168,6 +213,7 @@ export default function MobileMechanicMarketplace() {
     setAddress(DEFAULT_BOOKING_DRAFT.address);
     setAppointmentTime(DEFAULT_BOOKING_DRAFT.appointmentTime);
     setBookingConfirmed(false);
+    setDraftNotice("Draft reset to the default MVP booking. Saved browser draft was cleared.");
   }
 
   return (
@@ -216,6 +262,11 @@ export default function MobileMechanicMarketplace() {
       {activeTab === "book" && (
         <section className="mx-auto grid max-w-7xl gap-6 px-6 pb-16 lg:grid-cols-[1fr_380px]">
           <div className="space-y-6">
+            {draftNotice && (
+              <div className="rounded-3xl border border-blue-100 bg-blue-50 p-4 text-sm font-semibold text-blue-900">
+                {draftNotice}
+              </div>
+            )}
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -229,7 +280,7 @@ export default function MobileMechanicMarketplace() {
                   <button
                     key={service.id}
                     type="button"
-                    onClick={() => updateDraft(() => setSelectedServiceId(service.id))}
+                    onClick={() => handleServiceChange(service.id)}
                     className={`rounded-2xl border p-5 text-left transition ${
                       selectedServiceId === service.id
                         ? "border-blue-700 bg-blue-50 shadow-md"
@@ -262,7 +313,7 @@ export default function MobileMechanicMarketplace() {
                   <button
                     key={option.id}
                     type="button"
-                    onClick={() => updateDraft(() => setFulfillmentId(option.id))}
+                    onClick={() => handleFulfillmentChange(option.id)}
                     className={`rounded-2xl border p-5 text-left transition ${
                       fulfillmentId === option.id ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white hover:border-slate-400"
                     }`}
@@ -406,11 +457,15 @@ export default function MobileMechanicMarketplace() {
                 <div className="flex justify-between gap-4"><dt className="text-slate-500">Fulfillment</dt><dd className="font-semibold">{fulfillment.label}</dd></div>
               </dl>
               <div className="mt-6 border-t border-slate-200 pt-5">
+                <div className="mb-4 rounded-2xl bg-blue-50 p-4 text-sm text-blue-900">
+                  <div className="font-black">{estimateCopy.label}</div>
+                  <p className="mt-1 leading-6 font-semibold">{estimateCopy.summary}</p>
+                </div>
                 <div className="flex justify-between text-sm"><span>Labor estimate</span><strong>{currency(estimate.labor)}</strong></div>
                 <div className="mt-2 flex justify-between text-sm"><span>{estimate.lineItems.find((item) => item.id === "parts")?.label ?? "Parts"}</span><strong>{formatEstimateAmount(estimate.parts, { tbd: estimate.partsTbd, formatter: currency })}</strong></div>
                 <div className="mt-2 flex justify-between text-sm"><span>Travel / coordination</span><strong>{currency(estimate.travel)}</strong></div>
                 <div className="mt-2 flex justify-between text-sm"><span>Platform fee</span><strong>{currency(estimate.platform)}</strong></div>
-                <div className="mt-4 flex justify-between text-xl font-black"><span>Due today</span><span>{formatEstimateAmount(estimate.total, { tbd: estimate.totalTbd, formatter: currency })}</span></div>
+                <div className="mt-4 flex justify-between text-xl font-black"><span>{estimateCopy.totalLabel}</span><span>{formatEstimateAmount(estimate.total, { tbd: estimate.totalTbd, formatter: currency })}</span></div>
               </div>
               <button
                 type="button"
@@ -422,9 +477,20 @@ export default function MobileMechanicMarketplace() {
               >
                 {confirmationButtonLabel}
               </button>
-              <p className="mt-3 text-center text-xs text-slate-500">
-                {currentBookingState === "confirmed" ? "Provider confirmation is next; no charge has been captured." : "No charge until provider confirms parts and arrival window."}
-              </p>
+              <div className="mt-3 rounded-2xl bg-slate-50 p-4 text-center text-xs font-semibold text-slate-600">
+                {bookingConfirmed ? (
+                  <p>
+                    Confirmed with {selectedProvider?.name} for {selectedAppointmentTime}. {estimateCopy.totalLabel}: {formatEstimateAmount(estimate.total, { tbd: estimate.totalTbd, formatter: currency })}. Provider confirmation is next; no charge has been captured.
+                  </p>
+                ) : (
+                  <>
+                    <p>{confirmationGuidance.message}</p>
+                    {!confirmationGuidance.ready && confirmationGuidance.reasons.length > 1 && (
+                      <p className="mt-1">Also needed: {confirmationGuidance.reasons.slice(1).join(" ")}</p>
+                    )}
+                  </>
+                )}
+              </div>
             </section>
           </aside>
         </section>

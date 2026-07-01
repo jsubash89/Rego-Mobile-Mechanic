@@ -72,6 +72,34 @@ function getMissingBookingFields({ service, fulfillment, oil, provider, vehicle,
   return missing;
 }
 
+const MISSING_FIELD_COPY = {
+  service: "Choose a service.",
+  fulfillment: "Pick mobile, shop, or dealership fulfillment.",
+  oil_parts: "Choose an oil preference before comparing providers.",
+  provider: "Select an eligible provider for this service and fulfillment.",
+  vehicle: "Complete vehicle year, make, model, and VIN.",
+  appointment_time: "Choose an appointment time from an eligible provider.",
+  estimate: "Review a valid estimate before confirming.",
+};
+
+function getConfirmationGuidance(booking = {}) {
+  const missing = getMissingBookingFields(booking);
+
+  if (missing.length === 0) {
+    return {
+      ready: true,
+      message: "Ready to confirm. Provider confirmation happens next; no charge is captured in this MVP.",
+      reasons: [],
+    };
+  }
+
+  return {
+    ready: false,
+    message: MISSING_FIELD_COPY[missing[0]] ?? "Complete the required booking details before confirming.",
+    reasons: missing.map((field) => MISSING_FIELD_COPY[field] ?? field),
+  };
+}
+
 function canReviewBooking(booking = {}) {
   return getMissingBookingFields(booking).length === 0;
 }
@@ -182,6 +210,7 @@ module.exports = {
   getBookingState,
   getBookingSteps,
   getBookingStepStates,
+  getConfirmationGuidance,
   getMissingBookingFields,
   requiresPartsSelection,
   transitionBooking,

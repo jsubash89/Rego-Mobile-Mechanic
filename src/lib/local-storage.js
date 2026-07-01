@@ -172,6 +172,7 @@ function normalizeBookingDraft(draft, {
   fulfillmentOptions = [],
   oilOptions = [],
   providers = [],
+  deriveProviderSelection,
   chooseSelectedProvider,
 } = {}) {
   if (!draft || typeof draft !== "object" || Array.isArray(draft)) {
@@ -187,14 +188,26 @@ function normalizeBookingDraft(draft, {
   delete draftVehicle.vinLast4;
   delete draftVehicle.vinLast6;
   const vehicle = { ...(defaultDraft.vehicle ?? {}), ...draftVehicle };
-  const providerMatch = typeof chooseSelectedProvider === "function"
+  const providerRequest = { service, fulfillment, vehicle };
+  const providerSelection = typeof deriveProviderSelection === "function"
+    ? deriveProviderSelection({
+      providers,
+      selectedProviderId: draft.selectedProviderId,
+      appointmentTime: draft.appointmentTime,
+      request: providerRequest,
+    })
+    : null;
+  const providerMatch = !providerSelection && typeof chooseSelectedProvider === "function"
     ? chooseSelectedProvider({
       providers,
       selectedProviderId: draft.selectedProviderId,
-      request: { service, fulfillment, vehicle },
+      request: providerRequest,
     })
     : null;
-  const selectedProviderId = providerMatch?.providerId ?? null;
+  const selectedProviderId = providerSelection?.selectedProviderId ?? providerMatch?.providerId ?? null;
+  const appointmentTime = selectedProviderId
+    ? (providerSelection?.match?.earliestSlot ?? providerMatch?.earliestSlot ?? null)
+    : null;
   const normalizedDraft = {
     selectedServiceId,
     fulfillmentId,
@@ -202,13 +215,14 @@ function normalizeBookingDraft(draft, {
     selectedProviderId,
     vehicle,
     address: defaultDraft.address,
-    appointmentTime: draft.appointmentTime ?? defaultDraft.appointmentTime,
+    appointmentTime: appointmentTime ?? null,
   };
   const changed =
     normalizedDraft.selectedServiceId !== draft.selectedServiceId ||
     normalizedDraft.fulfillmentId !== draft.fulfillmentId ||
     normalizedDraft.selectedOilId !== draft.selectedOilId ||
     normalizedDraft.selectedProviderId !== draft.selectedProviderId ||
+    normalizedDraft.appointmentTime !== (draft.appointmentTime ?? null) ||
     normalizedDraft.address !== draft.address;
 
   return { draft: normalizedDraft, changed };

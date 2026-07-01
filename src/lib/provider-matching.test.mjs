@@ -4,7 +4,7 @@ import test from "node:test";
 import matching from "./provider-matching.js";
 import bookingState from "./booking-state.js";
 
-const { chooseSelectedProvider, getProviderMatchingResults, rankProviderMatches } = matching;
+const { chooseSelectedProvider, deriveProviderSelection, getProviderMatchingResults, rankProviderMatches } = matching;
 const { canConfirmBooking } = bookingState;
 
 const oilChange = {
@@ -187,4 +187,36 @@ test("shop fulfillment does not apply mobile travel cap exclusion", () => {
 
   assert.equal(matches.length, 1);
   assert.equal(matches[0].providerId, "shop-far");
+});
+
+test("provider selection derives a compatible fallback and earliest time after upstream changes", () => {
+  const selection = deriveProviderSelection({
+    providers: [
+      provider({ id: "mobile-only", fulfillmentModes: ["mobile"], availability: { available: true, earliestSlot: "Today 2:00 PM", rank: 0 } }),
+      provider({ id: "shop-only", fulfillmentModes: ["shop"], availability: { available: true, earliestSlot: "Tomorrow 10:00 AM", rank: 1 } }),
+    ],
+    selectedProviderId: "mobile-only",
+    appointmentTime: "Today 2:00 PM",
+    request: { service: inspection, fulfillment: shop },
+  });
+
+  assert.equal(selection.selectedProviderId, "shop-only");
+  assert.equal(selection.appointmentTime, "Tomorrow 10:00 AM");
+  assert.equal(selection.changed, true);
+  assert.equal(selection.noEligibleProviders, false);
+});
+
+test("provider selection clears incompatible provider and time when no eligible providers remain", () => {
+  const selection = deriveProviderSelection({
+    providers: [provider({ id: "shop-only", fulfillmentModes: ["shop"] })],
+    selectedProviderId: "shop-only",
+    appointmentTime: "Today 4:00 PM",
+    request: { service: inspection, fulfillment: mobile },
+  });
+
+  assert.equal(selection.provider, null);
+  assert.equal(selection.selectedProviderId, null);
+  assert.equal(selection.appointmentTime, null);
+  assert.equal(selection.changed, true);
+  assert.equal(selection.noEligibleProviders, true);
 });

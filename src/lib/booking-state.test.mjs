@@ -9,6 +9,7 @@ const {
   canConfirmBooking,
   getBookingState,
   getBookingStepStates,
+  getConfirmationGuidance,
   getMissingBookingFields,
   requiresPartsSelection,
   transitionBooking,
@@ -144,4 +145,19 @@ test("valid booking transitions to confirmed only when ready", () => {
   const confirmed = transitionBooking(ready, "confirm");
   assert.equal(confirmed.confirmed, true);
   assert.equal(getBookingState(confirmed), BOOKING_STATES.confirmed);
+});
+
+test("confirmation guidance explains disabled reasons and ready next step", () => {
+  const missingProvider = getConfirmationGuidance(completeBooking({ provider: null, appointmentTime: "" }));
+
+  assert.equal(missingProvider.ready, false);
+  assert.equal(missingProvider.message, "Select an eligible provider for this service and fulfillment.");
+  assert.deepEqual(missingProvider.reasons.slice(0, 2), [
+    "Select an eligible provider for this service and fulfillment.",
+    "Choose an appointment time from an eligible provider.",
+  ]);
+
+  const ready = getConfirmationGuidance(completeBooking());
+  assert.equal(ready.ready, true);
+  assert.match(ready.message, /Provider confirmation happens next/);
 });
