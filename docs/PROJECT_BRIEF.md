@@ -6,8 +6,10 @@ The product direction is ReGo Mobile Mechanic: a marketplace/operating layer for
 
 Linear project: `ReGo Mobile Mechanic` in JS Ventures.
 Project URL: https://linear.app/js-ventures/project/rego-mobile-mechanic-ee580668ba72
+GitHub repo: https://github.com/jsubash89/Rego-Mobile-Mechanic
 
 Documentation policy: every feature must have a buildable document under `docs/features/`, and Linear issues track those docs and their implementation readiness.
+Autonomous build policy: `docs/plans/autonomous-build-loop.md` defines the near-production MVP destination, phase gates, and reset/token-limit protocol.
 
 ## Source material inspected
 
