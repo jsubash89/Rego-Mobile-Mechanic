@@ -1,0 +1,189 @@
+const BOOKING_STATES = {
+  selectService: "select_service",
+  selectFulfillment: "select_fulfillment",
+  selectParts: "select_parts",
+  selectProvider: "select_provider",
+  review: "review",
+  confirmed: "confirmed",
+};
+
+const BOOKING_STEP_LABELS = {
+  [BOOKING_STATES.selectService]: "Choose a service",
+  [BOOKING_STATES.selectFulfillment]: "Pick where the work happens",
+  [BOOKING_STATES.selectParts]: "Choose oil / parts",
+  [BOOKING_STATES.selectProvider]: "Compare available providers",
+  [BOOKING_STATES.review]: "Review booking",
+  [BOOKING_STATES.confirmed]: "Confirmed",
+};
+
+const REQUIRED_VEHICLE_FIELDS = ["year", "make", "model", "vin"];
+
+function hasValue(value) {
+  return value !== undefined && value !== null && String(value).trim() !== "";
+}
+
+function requiresPartsSelection(service) {
+  return service?.id === "oil-change" || service?.requiresFluidSpec === true;
+}
+
+function vehicleIsComplete(vehicle) {
+  return REQUIRED_VEHICLE_FIELDS.every((field) => hasValue(vehicle?.[field]));
+}
+
+function estimateIsComplete(estimate) {
+  if (!estimate) {
+    return false;
+  }
+
+  return Number.isFinite(estimate.total) && Array.isArray(estimate.lineItems) && estimate.lineItems.length > 0;
+}
+
+function getMissingBookingFields({ service, fulfillment, oil, provider, vehicle, appointmentTime, estimate } = {}) {
+  const missing = [];
+
+  if (!service) {
+    missing.push("service");
+  }
+
+  if (!fulfillment) {
+    missing.push("fulfillment");
+  }
+
+  if (requiresPartsSelection(service) && !oil) {
+    missing.push("oil_parts");
+  }
+
+  if (!provider) {
+    missing.push("provider");
+  }
+
+  if (!vehicleIsComplete(vehicle)) {
+    missing.push("vehicle");
+  }
+
+  if (!hasValue(appointmentTime)) {
+    missing.push("appointment_time");
+  }
+
+  if (!estimateIsComplete(estimate)) {
+    missing.push("estimate");
+  }
+
+  return missing;
+}
+
+function canReviewBooking(booking = {}) {
+  return getMissingBookingFields(booking).length === 0;
+}
+
+function canConfirmBooking(booking = {}) {
+  return canReviewBooking(booking);
+}
+
+function getBookingStepStates({ service } = {}) {
+  const states = [BOOKING_STATES.selectService, BOOKING_STATES.selectFulfillment];
+
+  if (requiresPartsSelection(service)) {
+    states.push(BOOKING_STATES.selectParts);
+  }
+
+  states.push(BOOKING_STATES.selectProvider, BOOKING_STATES.review, BOOKING_STATES.confirmed);
+  return states;
+}
+
+function getBookingSteps(booking = {}) {
+  const currentState = getBookingState(booking);
+
+  return getBookingStepStates(booking).map((state, index) => ({
+    id: state,
+    state,
+    number: index + 1,
+    label: BOOKING_STEP_LABELS[state],
+    active: state === currentState,
+    complete: getBookingStepIsComplete(state, booking),
+  }));
+}
+
+function getBookingStepIsComplete(state, booking = {}) {
+  const { service, fulfillment, oil, provider, vehicle, appointmentTime, estimate, confirmed } = booking;
+
+  switch (state) {
+    case BOOKING_STATES.selectService:
+      return Boolean(service);
+    case BOOKING_STATES.selectFulfillment:
+      return Boolean(service && fulfillment);
+    case BOOKING_STATES.selectParts:
+      return Boolean(service && fulfillment && (!requiresPartsSelection(service) || oil));
+    case BOOKING_STATES.selectProvider:
+      return Boolean(service && fulfillment && (!requiresPartsSelection(service) || oil) && provider && hasValue(appointmentTime));
+    case BOOKING_STATES.review:
+      return canReviewBooking({ service, fulfillment, oil, provider, vehicle, appointmentTime, estimate });
+    case BOOKING_STATES.confirmed:
+      return Boolean(confirmed) && canConfirmBooking({ service, fulfillment, oil, provider, vehicle, appointmentTime, estimate });
+    default:
+      return false;
+  }
+}
+
+function getBookingState(booking = {}) {
+  const { service, fulfillment, oil, provider, vehicle, appointmentTime, estimate, confirmed } = booking;
+
+  if (!service) {
+    return BOOKING_STATES.selectService;
+  }
+
+  if (!fulfillment) {
+    return BOOKING_STATES.selectFulfillment;
+  }
+
+  if (requiresPartsSelection(service) && !oil) {
+    return BOOKING_STATES.selectParts;
+  }
+
+  if (!provider || !hasValue(appointmentTime)) {
+    return BOOKING_STATES.selectProvider;
+  }
+
+  if (!canReviewBooking({ service, fulfillment, oil, provider, vehicle, appointmentTime, estimate })) {
+    return BOOKING_STATES.review;
+  }
+
+  if (confirmed) {
+    return BOOKING_STATES.confirmed;
+  }
+
+  return BOOKING_STATES.review;
+}
+
+function transitionBooking(booking = {}, event) {
+  const type = typeof event === "string" ? event : event?.type;
+
+  if (type === "confirm" || type === "CONFIRM") {
+    if (!canConfirmBooking(booking)) {
+      return { ...booking, confirmed: false };
+    }
+
+    return { ...booking, confirmed: true };
+  }
+
+  if (type === "edit" || type === "EDIT") {
+    return { ...booking, confirmed: false };
+  }
+
+  return { ...booking };
+}
+
+module.exports = {
+  BOOKING_STATES,
+  BOOKING_STEP_LABELS,
+  REQUIRED_VEHICLE_FIELDS,
+  canConfirmBooking,
+  canReviewBooking,
+  getBookingState,
+  getBookingSteps,
+  getBookingStepStates,
+  getMissingBookingFields,
+  requiresPartsSelection,
+  transitionBooking,
+  vehicleIsComplete,
+};

@@ -7,9 +7,11 @@ import { serviceHistory } from "@/data/history";
 import { providers } from "@/data/providers";
 import { oilOptions, services } from "@/data/services";
 import { initialVehicle } from "@/data/vehicles";
+import bookingState from "@/lib/booking-state";
 import pricing from "@/lib/pricing";
 
 const { calculateEstimate, formatEstimateAmount } = pricing;
+const { canConfirmBooking, getBookingState, getBookingSteps, requiresPartsSelection, transitionBooking } = bookingState;
 
 function currency(amount) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
@@ -34,15 +36,48 @@ export default function MobileMechanicMarketplace() {
   const [vehicle, setVehicle] = useState(initialVehicle);
   const [address, setAddress] = useState("Home · 220 W Kinzie St, Chicago, IL");
   const [appointmentTime, setAppointmentTime] = useState("Today 2:30 PM");
+  const [bookingConfirmed, setBookingConfirmed] = useState(false);
 
   const selectedService = services.find((service) => service.id === selectedServiceId) ?? services[0];
   const fulfillment = fulfillmentOptions.find((option) => option.id === fulfillmentId) ?? fulfillmentOptions[0];
   const selectedOil = oilOptions.find((oil) => oil.id === selectedOilId) ?? oilOptions[0];
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? providers[0];
+  const partsSelectionRequired = requiresPartsSelection(selectedService);
 
   const estimate = useMemo(() => {
     return calculateEstimate({ service: selectedService, oil: selectedOil, fulfillment });
   }, [selectedService, selectedOil, fulfillment]);
+
+  const bookingDraft = useMemo(() => ({
+    service: selectedService,
+    fulfillment,
+    oil: partsSelectionRequired ? selectedOil : undefined,
+    provider: selectedProvider,
+    vehicle,
+    appointmentTime,
+    estimate,
+    confirmed: bookingConfirmed,
+  }), [selectedService, fulfillment, selectedOil, selectedProvider, vehicle, appointmentTime, estimate, bookingConfirmed, partsSelectionRequired]);
+  const steps = getBookingSteps(bookingDraft);
+  const stepByState = Object.fromEntries(steps.map((step) => [step.state, step]));
+  const currentBookingState = getBookingState(bookingDraft);
+  const confirmationReady = canConfirmBooking(bookingDraft);
+  const confirmationButtonLabel = bookingConfirmed ? "Appointment confirmed" : confirmationReady ? "Confirm appointment" : "Complete booking details";
+
+  function updateDraft(updater) {
+    setBookingConfirmed(false);
+    updater();
+  }
+
+  function stepEyebrow(state) {
+    const step = stepByState[state];
+    return step ? `Step ${step.number}` : "Step";
+  }
+
+  function handleConfirmAppointment() {
+    const nextBooking = transitionBooking(bookingDraft, "confirm");
+    setBookingConfirmed(nextBooking.confirmed === true);
+  }
 
   return (
     <main className="min-h-screen bg-[#F7F8FB] text-slate-950">
@@ -93,7 +128,7 @@ export default function MobileMechanicMarketplace() {
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Step 1</p>
+                  <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">{stepEyebrow("select_service")}</p>
                   <h2 className="mt-1 text-2xl font-black">Choose a service</h2>
                 </div>
                 <Pill tone="blue">Vehicle-aware pricing</Pill>
@@ -103,7 +138,7 @@ export default function MobileMechanicMarketplace() {
                   <button
                     key={service.id}
                     type="button"
-                    onClick={() => setSelectedServiceId(service.id)}
+                    onClick={() => updateDraft(() => setSelectedServiceId(service.id))}
                     className={`rounded-2xl border p-5 text-left transition ${
                       selectedServiceId === service.id
                         ? "border-blue-700 bg-blue-50 shadow-md"
@@ -129,14 +164,14 @@ export default function MobileMechanicMarketplace() {
             </section>
 
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Step 2</p>
+              <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">{stepEyebrow("select_fulfillment")}</p>
               <h2 className="mt-1 text-2xl font-black">Pick where the work happens</h2>
               <div className="mt-5 grid gap-4 md:grid-cols-3">
                 {fulfillmentOptions.map((option) => (
                   <button
                     key={option.id}
                     type="button"
-                    onClick={() => setFulfillmentId(option.id)}
+                    onClick={() => updateDraft(() => setFulfillmentId(option.id))}
                     className={`rounded-2xl border p-5 text-left transition ${
                       fulfillmentId === option.id ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white hover:border-slate-400"
                     }`}
@@ -150,16 +185,16 @@ export default function MobileMechanicMarketplace() {
               </div>
             </section>
 
-            {selectedService.id === "oil-change" && (
+            {partsSelectionRequired && (
               <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Step 3</p>
+                <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">{stepEyebrow("select_parts")}</p>
                 <h2 className="mt-1 text-2xl font-black">Oil preference</h2>
                 <div className="mt-5 grid gap-3 md:grid-cols-2">
                   {oilOptions.map((oil) => (
                     <button
                       key={oil.id}
                       type="button"
-                      onClick={() => setSelectedOilId(oil.id)}
+                      onClick={() => updateDraft(() => setSelectedOilId(oil.id))}
                       className={`rounded-2xl border p-4 text-left transition ${
                         selectedOilId === oil.id ? "border-amber-500 bg-amber-50" : "border-slate-200 bg-white hover:border-slate-400"
                       }`}
@@ -181,7 +216,7 @@ export default function MobileMechanicMarketplace() {
             )}
 
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Step 4</p>
+              <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">{stepEyebrow("select_provider")}</p>
               <h2 className="mt-1 text-2xl font-black">Compare available providers</h2>
               <div className="mt-5 space-y-4">
                 {providers.map((provider) => (
@@ -189,8 +224,10 @@ export default function MobileMechanicMarketplace() {
                     key={provider.id}
                     type="button"
                     onClick={() => {
-                      setSelectedProviderId(provider.id);
-                      setAppointmentTime(provider.earliest);
+                      updateDraft(() => {
+                        setSelectedProviderId(provider.id);
+                        setAppointmentTime(provider.earliest);
+                      });
                     }}
                     className={`w-full rounded-2xl border p-5 text-left transition ${
                       selectedProviderId === provider.id ? "border-green-600 bg-emerald-50 shadow-md" : "border-slate-200 bg-white hover:border-slate-400"
@@ -220,6 +257,11 @@ export default function MobileMechanicMarketplace() {
             <section className="sticky top-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
               <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-400">Booking summary</p>
               <h2 className="mt-2 text-2xl font-black">{selectedService.name}</h2>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {steps.map((step) => (
+                  <Pill key={step.id} tone={step.active ? "blue" : step.complete ? "green" : "slate"}>{step.number}. {step.label}</Pill>
+                ))}
+              </div>
               <div className="mt-5 rounded-2xl bg-slate-50 p-4">
                 <div className="font-black">{vehicle.year} {vehicle.make} {vehicle.model}</div>
                 <div className="mt-1 text-sm text-slate-600">{vehicle.mileage} miles · VIN ending {vehicle.vin.slice(-6)}</div>
@@ -237,10 +279,19 @@ export default function MobileMechanicMarketplace() {
                 <div className="mt-2 flex justify-between text-sm"><span>Platform fee</span><strong>{currency(estimate.platform)}</strong></div>
                 <div className="mt-4 flex justify-between text-xl font-black"><span>Due today</span><span>{formatEstimateAmount(estimate.total, { tbd: estimate.totalTbd, formatter: currency })}</span></div>
               </div>
-              <button type="button" className="mt-6 w-full rounded-2xl bg-blue-700 px-5 py-4 text-base font-black text-white shadow-lg transition hover:bg-blue-800">
-                Confirm appointment
+              <button
+                type="button"
+                onClick={handleConfirmAppointment}
+                disabled={!confirmationReady || bookingConfirmed}
+                className={`mt-6 w-full rounded-2xl px-5 py-4 text-base font-black text-white shadow-lg transition ${
+                  confirmationReady && !bookingConfirmed ? "bg-blue-700 hover:bg-blue-800" : "cursor-not-allowed bg-slate-400"
+                }`}
+              >
+                {confirmationButtonLabel}
               </button>
-              <p className="mt-3 text-center text-xs text-slate-500">No charge until provider confirms parts and arrival window.</p>
+              <p className="mt-3 text-center text-xs text-slate-500">
+                {currentBookingState === "confirmed" ? "Provider confirmation is next; no charge has been captured." : "No charge until provider confirms parts and arrival window."}
+              </p>
             </section>
           </aside>
         </section>
@@ -258,7 +309,7 @@ export default function MobileMechanicMarketplace() {
                   <input
                     className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-700"
                     value={value}
-                    onChange={(event) => setVehicle((current) => ({ ...current, [key]: event.target.value }))}
+                    onChange={(event) => updateDraft(() => setVehicle((current) => ({ ...current, [key]: event.target.value })))}
                   />
                 </label>
               ))}
@@ -267,7 +318,7 @@ export default function MobileMechanicMarketplace() {
                 <input
                   className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-700"
                   value={address}
-                  onChange={(event) => setAddress(event.target.value)}
+                  onChange={(event) => updateDraft(() => setAddress(event.target.value))}
                 />
               </label>
             </div>
