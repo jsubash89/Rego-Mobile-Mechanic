@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-02
 
-Current control-plane status: JS-823 is in progress for this docs refresh. JS-824 through JS-837 are complete on `main` as of commit `f11f109`, with the latest pushed GitHub CI green at https://github.com/jsubash89/Rego-Mobile-Mechanic/actions/runs/28608880203 before this local docs-only checkpoint is pushed.
+Current control-plane status: JS-823 through JS-837 are complete on `main`. The latest durable checkpoint is commit `102a18b`, and the latest GitHub CI run on `main` is green at https://github.com/jsubash89/Rego-Mobile-Mechanic/actions/runs/28609319480.
 
 GitHub repo: https://github.com/jsubash89/Rego-Mobile-Mechanic
 Linear project: https://linear.app/js-ventures/project/rego-mobile-mechanic-ee580668ba72
@@ -214,7 +214,7 @@ Milestone completion means the named issue's acceptance criteria, implementation
 
 | Order | Issue | Status | Milestone | Verification expectations | Release-gate impact |
 | --- | --- | --- | --- | --- | --- |
-| 1 | JS-823 | In Progress | Autonomous build control plane and CI/CD readiness map | Docs-only verification: `npm test`, `npm run lint`, `npm run build`; confirm this file and `rego-linear-issue-index.md` name the destination, gates, selection order, reset protocol, non-goals, partner-roadside boundary, and current milestone sequence. | Gate 1 control-plane source of truth; does not by itself complete product implementation. |
+| 1 | JS-823 | Done | Autonomous build control plane and CI/CD readiness map | Docs-only verification: `npm test`, `npm run lint`, `npm run build`; confirm this file and `rego-linear-issue-index.md` name the destination, gates, selection order, reset protocol, non-goals, partner-roadside boundary, and current milestone sequence. | Gate 1 control-plane source of truth; does not by itself complete product implementation. |
 | 2 | JS-824 | Done | GitHub CI workflow and release gates | CI workflow runs `npm ci`, lint, tests, and build on pull requests and pushes to `main`; latest `main` CI is green. | Gate 2 release verification baseline. |
 | 3 | JS-825 | Done | Domain data extraction and contracts | Domain constants/contracts are out of page UI and covered by unit tests; build remains green. | Gate 3 foundation: reduces UI coupling before feature hardening. |
 | 4 | JS-826 | Done | Estimate/pricing engine | Pricing/TBD/change-order rules have focused unit coverage and build verification. | Gate 3 foundation: booking can show explainable estimates without live payments. |

@@ -23,3 +23,13 @@ Build rule:
 - No implementation without acceptance criteria.
 - No acceptance without tests mapped to journey coverage.
 - If implementation contradicts docs, update docs or fix implementation before continuing.
+
+## JS-784 control-plane acceptance
+
+JS-784 can close only when the build control plane remains testable and traceable:
+
+- This `docs/` tree is the source of truth for ReGo product behavior and implementation boundaries.
+- Feature documents must include acceptance criteria and test-plan pointers before related implementation is considered complete.
+- `plans/autonomous-build-loop.md`, `plans/autonomous-linear-milestones.md`, and `plans/rego-linear-issue-index.md` must stay synchronized with Linear milestone/issue status.
+- Product boundaries remain intact: emergency roadside is partner-routed only, and live auth, payments, messaging, location, VIN/recall, fitment, and commercial automotive integrations stay deferred until explicitly scoped.
+- Local verification before Done is `npm test`, `npm run lint`, and `npm run build`; remote CI must pass before any issue is moved to Done.

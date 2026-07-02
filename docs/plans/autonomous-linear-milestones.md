@@ -13,3 +13,5 @@
 - JS-833 — Milestone: Implement partner-routed emergency roadside handoff — https://linear.app/js-ventures/issue/JS-833/milestone-implement-partner-routed-emergency-roadside-handoff
 - JS-834 — Milestone: Add auth/RBAC, privacy boundaries, and deployment readiness checklist — https://linear.app/js-ventures/issue/JS-834/milestone-add-authrbac-privacy-boundaries-and-deployment-readiness
 - JS-835 — Milestone: Automotive data source strategy and MVP integration policy — https://linear.app/js-ventures/issue/JS-835/milestone-automotive-data-source-strategy-and-mvp-integration-policy
+- JS-836 — Milestone: Restore create.xyz-inspired ReGo UX shell while preserving engines — https://linear.app/js-ventures/issue/JS-836/restore-createxyz-inspired-rego-ux-shell-while-preserving-engines
+- JS-837 — Milestone: Polish create.xyz customer UX fidelity — https://linear.app/js-ventures/issue/JS-837/milestone-polish-createxyz-customer-ux-fidelity
