@@ -4,6 +4,8 @@ Linear project: https://linear.app/js-ventures/project/rego-mobile-mechanic-ee58
 
 This index maps the buildable repository documents to their Linear tracking issues. The repo documents are the source of truth; Linear tracks ownership, status, and execution.
 
+Milestone issues sequence autonomous implementation toward MVP readiness. Feature/spec issues define expected behavior. A feature spec is not implementation-complete until the related code, tests, docs, acceptance criteria, and Linear status agree; an implementation milestone is not complete if the source-of-truth docs or verification expectations are stale.
+
 ## Issues
 
 - JS-784 — Docs: ReGo build control plane — https://linear.app/js-ventures/issue/JS-784/docs-rego-build-control-plane
@@ -61,9 +63,12 @@ This index maps the buildable repository documents to their Linear tracking issu
 - JS-833 — Milestone: Implement partner-routed emergency roadside handoff — https://linear.app/js-ventures/issue/JS-833/milestone-implement-partner-routed-emergency-roadside-handoff
 - JS-834 — Milestone: Add auth/RBAC, privacy boundaries, and deployment readiness checklist — https://linear.app/js-ventures/issue/JS-834/milestone-add-authrbac-privacy-boundaries-and-deployment-readiness
 - JS-835 — Milestone: Automotive data source strategy and MVP integration policy — https://linear.app/js-ventures/issue/JS-835/milestone-automotive-data-source-strategy-and-mvp-integration-policy
+- JS-836 — Milestone: Restore create.xyz-inspired ReGo UX shell while preserving engines — https://linear.app/js-ventures/issue/JS-836/restore-createxyz-inspired-rego-ux-shell-while-preserving-engines
+- JS-837 — Milestone: Polish create.xyz customer UX fidelity — https://linear.app/js-ventures/issue/JS-837/milestone-polish-createxyz-customer-ux-fidelity
 
 ## Operating rule
 
 - Update the relevant `docs/features/...` document before or with implementation changes.
 - Link commits/PRs back to the Linear issue.
 - Do not mark a feature complete unless docs, acceptance criteria, implementation, and tests agree.
+- Emergency roadside work is partner-routed only; it must not create direct ReGo towing, lockout, fuel delivery, emergency flat-tire, emergency battery, provider dispatch, or dispatch-job operations.
