@@ -1,3 +1,5 @@
+const { vehicleIdentityIsComplete } = require("./vehicle-identity.js");
+
 const BOOKING_STATES = {
   selectService: "select_service",
   selectFulfillment: "select_fulfillment",
@@ -16,7 +18,7 @@ const BOOKING_STEP_LABELS = {
   [BOOKING_STATES.confirmed]: "Confirmed",
 };
 
-const REQUIRED_VEHICLE_FIELDS = ["year", "make", "model", "vin"];
+const REQUIRED_VEHICLE_FIELDS = ["year", "make", "model"];
 
 function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== "";
@@ -27,7 +29,7 @@ function requiresPartsSelection(service) {
 }
 
 function vehicleIsComplete(vehicle) {
-  return REQUIRED_VEHICLE_FIELDS.every((field) => hasValue(vehicle?.[field]));
+  return vehicleIdentityIsComplete(vehicle);
 }
 
 function estimateIsComplete(estimate) {
@@ -77,7 +79,7 @@ const MISSING_FIELD_COPY = {
   fulfillment: "Pick mobile, shop, or dealership fulfillment.",
   oil_parts: "Choose an oil preference before comparing providers.",
   provider: "Select an eligible provider for this service and fulfillment.",
-  vehicle: "Complete vehicle year, make, model, and VIN.",
+  vehicle: "Complete vehicle year, make, and model, or enter a VIN.",
   appointment_time: "Choose an appointment time from an eligible provider.",
   estimate: "Review a valid estimate before confirming.",
 };

@@ -1,4 +1,5 @@
 const BOOKING_DRAFT_STORAGE_KEY = "rego.bookingDraft.v1";
+const { minimizeVehicleIdentity } = require("./vehicle-identity.js");
 
 const BOOKING_DRAFT_FIELDS = [
   "vehicle",
@@ -9,7 +10,7 @@ const BOOKING_DRAFT_FIELDS = [
   "appointmentTime",
 ];
 
-const SAFE_VEHICLE_FIELDS = ["year", "make", "model", "mileage", "vinLast6", "vinLast4"];
+const SAFE_VEHICLE_FIELDS = ["year", "make", "model", "trim", "engine", "transmission", "mileage", "vinLast6", "vinLast4"];
 
 function getBrowserStorage(storage) {
   if (storage) {
@@ -86,16 +87,13 @@ function cleanVehicle(vehicle) {
     return undefined;
   }
 
+  const sourceVehicle = minimizeVehicleIdentity(vehicle);
   const sanitized = {};
 
   for (const field of SAFE_VEHICLE_FIELDS) {
-    if (typeof vehicle[field] === "string" || typeof vehicle[field] === "number") {
-      sanitized[field] = String(vehicle[field]);
+    if (typeof sourceVehicle[field] === "string" || typeof sourceVehicle[field] === "number") {
+      sanitized[field] = String(sourceVehicle[field]);
     }
-  }
-
-  if (!sanitized.vinLast6 && (typeof vehicle.vin === "string" || typeof vehicle.vin === "number")) {
-    sanitized.vinLast6 = String(vehicle.vin).slice(-6);
   }
 
   return Object.keys(sanitized).length > 0 ? sanitized : undefined;
@@ -166,6 +164,22 @@ function chooseValidId(value, options, fallbackValue) {
   return ids[0] ?? null;
 }
 
+function hasVehicleDraft(vehicle) {
+  return vehicle && typeof vehicle === "object" && !Array.isArray(vehicle) && Object.keys(vehicle).length > 0;
+}
+
+function normalizeDraftVehicle(draftVehicle, defaultVehicle) {
+  if (hasVehicleDraft(draftVehicle)) {
+    return minimizeVehicleIdentity(draftVehicle);
+  }
+
+  return minimizeVehicleIdentity(defaultVehicle ?? {});
+}
+
+function valuesDiffer(left, right) {
+  return JSON.stringify(left ?? null) !== JSON.stringify(right ?? null);
+}
+
 function normalizeBookingDraft(draft, {
   defaultDraft = {},
   services = [],
@@ -184,10 +198,8 @@ function normalizeBookingDraft(draft, {
   const selectedOilId = chooseValidId(draft.selectedOilId, oilOptions, defaultDraft.selectedOilId);
   const service = services.find((option) => option.id === selectedServiceId) ?? null;
   const fulfillment = fulfillmentOptions.find((option) => option.id === fulfillmentId) ?? null;
-  const draftVehicle = { ...(draft.vehicle ?? {}) };
-  delete draftVehicle.vinLast4;
-  delete draftVehicle.vinLast6;
-  const vehicle = { ...(defaultDraft.vehicle ?? {}), ...draftVehicle };
+  const draftVehicle = draft.vehicle;
+  const vehicle = normalizeDraftVehicle(draftVehicle, defaultDraft.vehicle);
   const providerRequest = { service, fulfillment, vehicle };
   const providerSelection = typeof deriveProviderSelection === "function"
     ? deriveProviderSelection({
@@ -223,7 +235,8 @@ function normalizeBookingDraft(draft, {
     normalizedDraft.selectedOilId !== draft.selectedOilId ||
     normalizedDraft.selectedProviderId !== draft.selectedProviderId ||
     normalizedDraft.appointmentTime !== (draft.appointmentTime ?? null) ||
-    normalizedDraft.address !== draft.address;
+    normalizedDraft.address !== draft.address ||
+    valuesDiffer(normalizedDraft.vehicle, draft.vehicle);
 
   return { draft: normalizedDraft, changed };
 }

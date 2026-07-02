@@ -71,6 +71,9 @@ describe("local storage helpers", () => {
         year: 2021,
         make: "Toyota",
         model: "RAV4",
+        trim: "XLE Premium",
+        engine: "2.5L I4",
+        transmission: "8-speed automatic",
         vin: "JTMWFREV1MJ123456",
         unsupportedNestedValue: { nope: true },
       },
@@ -90,6 +93,9 @@ describe("local storage helpers", () => {
         year: "2021",
         make: "Toyota",
         model: "RAV4",
+        trim: "XLE Premium",
+        engine: "2.5L I4",
+        transmission: "8-speed automatic",
         vinLast6: "123456",
       },
       selectedServiceId: "oil-change",
@@ -131,7 +137,7 @@ describe("local storage helpers", () => {
     assert.deepEqual(storage.dump(), {});
   });
 
-  it("normalizes invalid IDs and restores private fields from defaults", () => {
+  it("normalizes invalid IDs without restoring full VIN from defaults", () => {
     const defaultDraft = {
       selectedServiceId: "oil-change",
       fulfillmentId: "mobile",
@@ -196,8 +202,151 @@ describe("local storage helpers", () => {
     assert.equal(draft.selectedProviderId, "oak");
     assert.equal(draft.appointmentTime, "Today 4:00 PM");
     assert.equal(draft.address, defaultDraft.address);
-    assert.equal(draft.vehicle.vin, defaultDraft.vehicle.vin);
-    assert.equal(draft.vehicle.vinLast6, undefined);
+    assert.equal(draft.vehicle.vin, undefined);
+    assert.equal(draft.vehicle.vinLast6, "123456");
+  });
+
+  it("keeps safe persisted vehicle UX details through booking draft normalization", () => {
+    const defaultDraft = {
+      selectedServiceId: "oil-change",
+      fulfillmentId: "mobile",
+      selectedOilId: "recommended",
+      vehicle: { year: "2024", make: "Toyota", model: "Camry", engine: "2.5L I4" },
+    };
+
+    const { draft } = normalizeBookingDraft({
+      selectedServiceId: "oil-change",
+      fulfillmentId: "mobile",
+      selectedOilId: "recommended",
+      vehicle: {
+        year: "2021",
+        make: "Toyota",
+        model: "RAV4",
+        trim: "XLE Premium",
+        engine: "2.5L I4 Hybrid",
+        transmission: "eCVT",
+      },
+    }, {
+      defaultDraft,
+      services: [{ id: "oil-change", name: "Oil", requiresPartsFitment: true }],
+      fulfillmentOptions: [{ id: "mobile" }],
+      oilOptions: [{ id: "recommended" }],
+    });
+
+    assert.deepEqual(draft.vehicle, {
+      year: "2021",
+      make: "Toyota",
+      model: "RAV4",
+      trim: "XLE Premium",
+      engine: "2.5L I4 Hybrid",
+      transmission: "eCVT",
+    });
+  });
+
+  it("does not complete vinLast6-only persisted identity with default vehicle fields", () => {
+    const service = { id: "oil-change", name: "Oil", requiresPartsFitment: true };
+    const fulfillment = { id: "mobile" };
+    const oil = { id: "recommended" };
+    const provider = { id: "maria" };
+    const estimate = { total: 125, lineItems: [{ label: "Oil change", amount: 125 }] };
+    const defaultDraft = {
+      selectedServiceId: service.id,
+      fulfillmentId: fulfillment.id,
+      selectedOilId: oil.id,
+      selectedProviderId: provider.id,
+      vehicle: {
+        year: "2024",
+        make: "Toyota",
+        model: "Camry",
+        engine: "2.5L I4",
+        vin: "JTMW1RFV1MD000000",
+      },
+      appointmentTime: "Today 2:30 PM",
+    };
+
+    const { draft } = normalizeBookingDraft({
+      selectedServiceId: service.id,
+      fulfillmentId: fulfillment.id,
+      selectedOilId: oil.id,
+      selectedProviderId: provider.id,
+      vehicle: { vinLast6: "123456" },
+      appointmentTime: "Today 2:30 PM",
+    }, {
+      defaultDraft,
+      services: [service],
+      fulfillmentOptions: [fulfillment],
+      oilOptions: [oil],
+      providers: [{
+        ...provider,
+        serviceIds: [service.id],
+        fulfillmentModes: [fulfillment.id],
+        availability: { available: true, earliestSlot: "Today 2:30 PM", rank: 0 },
+        distance: 3,
+        providerConfirmedParts: true,
+      }],
+      deriveProviderSelection,
+    });
+
+    assert.deepEqual(draft.vehicle, { vinLast6: "123456" });
+    assert.equal(canConfirmBooking({
+      service,
+      fulfillment,
+      oil,
+      provider,
+      vehicle: draft.vehicle,
+      appointmentTime: draft.appointmentTime,
+      estimate,
+    }), false);
+  });
+
+  it("does not allow a stale default VIN to complete identity after persisted make/model edits", () => {
+    const service = { id: "oil-change", name: "Oil", requiresPartsFitment: true };
+    const fulfillment = { id: "mobile" };
+    const oil = { id: "recommended" };
+    const provider = { id: "maria" };
+    const estimate = { total: 125, lineItems: [{ label: "Oil change", amount: 125 }] };
+    const defaultDraft = {
+      selectedServiceId: service.id,
+      fulfillmentId: fulfillment.id,
+      selectedOilId: oil.id,
+      selectedProviderId: provider.id,
+      vehicle: { year: "2024", make: "Toyota", model: "Camry", vin: "JTMW1RFV1MD000000" },
+      appointmentTime: "Today 2:30 PM",
+    };
+
+    const { draft } = normalizeBookingDraft({
+      selectedServiceId: service.id,
+      fulfillmentId: fulfillment.id,
+      selectedOilId: oil.id,
+      selectedProviderId: provider.id,
+      vehicle: { year: "2024", make: "Honda", model: "" },
+      appointmentTime: "Today 2:30 PM",
+    }, {
+      defaultDraft,
+      services: [service],
+      fulfillmentOptions: [fulfillment],
+      oilOptions: [oil],
+      providers: [{
+        ...provider,
+        serviceIds: [service.id],
+        fulfillmentModes: [fulfillment.id],
+        availability: { available: true, earliestSlot: "Today 2:30 PM", rank: 0 },
+        distance: 3,
+        providerConfirmedParts: true,
+      }],
+      deriveProviderSelection,
+    });
+
+    assert.equal(draft.vehicle.vin, undefined);
+    assert.equal(canConfirmBooking({
+      service,
+      fulfillment,
+      oil,
+      provider,
+      vehicle: draft.vehicle,
+      appointmentTime: draft.appointmentTime,
+      estimate,
+    }), false);
   });
 
   it("normalizes stale persisted provider with fallback provider earliest slot", () => {
