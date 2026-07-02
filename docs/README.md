@@ -12,9 +12,11 @@ Start here:
 4. `research/automotive-data-sources.md` — open/free vs curated/provider-confirmed vs deferred commercial automotive data policy.
 5. `plans/autonomous-build-loop.md` — near-production MVP destination, phase gates, and reset/token-limit protocol.
 6. `features/README.md` — feature-document index and ownership map.
-7. `architecture/state-machines.md` — canonical booking/job lifecycle.
-8. `quality/test-strategy.md` — exhaustive testing and release gates.
-9. `plans/mobile-mechanic-build-plan.md` — implementation sequence.
+7. `features/platform/auth-rbac-privacy.md` — role matrix, data permissions, privacy/logging gates, and feature flags.
+8. `operations/deployment-readiness.md` — environment contract, release checks, rollback, and post-deploy smoke.
+9. `architecture/state-machines.md` — canonical booking/job lifecycle.
+10. `quality/test-strategy.md` — exhaustive testing and release gates.
+11. `plans/mobile-mechanic-build-plan.md` — implementation sequence.
 
 Build rule:
 - No new feature without a doc.

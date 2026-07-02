@@ -32,7 +32,7 @@ System calculates and displays transparent booking estimate.
 Designed. Current prototype may only implement part of this feature.
 
 ## Roles
-Customer/Admin/System
+Customer/Provider/Admin/System
 
 ## Goals
 - Make this capability explicit, testable, and buildable.
@@ -130,6 +130,9 @@ Define event names, triggers, required properties, and forbidden PII before inst
 - Enforce role permissions server-side.
 - Mask sensitive vehicle/customer/payment data where not needed.
 - Do not log VIN, address, payment, or private messages into analytics/errors.
+- Customer estimate projections may include only customer-facing status, totals, fees, discounts, taxes, and currency.
+- Provider estimate projections must use a provider-safe whitelist: customer-facing total/status/currency plus providerEarnings/providerPayout/payoutStatus when needed for the assigned job. Providers must not receive platform margin, internalFees, payment intent IDs/client secrets, or raw payment containers.
+- Admin/system operational projections may include internal economics for audit/ops, but payment secrets remain scrubbed.
 
 ## Acceptance criteria
 - Given valid prerequisites, when the actor completes the primary flow, then the expected state is created or updated.
@@ -160,6 +163,7 @@ Accessibility:
 Security/privacy:
 - Role-scoped data access and sensitive-data masking.
 - Quote source/version auditability without exposing unnecessary VIN/customer data.
+- Provider estimate projection tests must assert platform margin, internalFees, payment intent IDs/client secrets, and raw payment containers are absent while allowed provider earnings/payout summary remains available.
 
 External data:
 - Mock oil/parts/labor sources if/when added.

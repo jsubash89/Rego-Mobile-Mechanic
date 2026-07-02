@@ -37,9 +37,13 @@ Operations/Admin:
 
 Platform:
 - platform/authentication.md
+- platform/auth-rbac-privacy.md
 - platform/notifications.md
 - platform/messaging.md
 - platform/payments.md
 - platform/search-matching.md
 - platform/reviews-ratings.md
 - platform/audit-log.md
+
+Operations readiness:
+- ../operations/deployment-readiness.md
