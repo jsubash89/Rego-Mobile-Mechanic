@@ -37,6 +37,8 @@ const DEFAULT_BOOKING_DRAFT = {
   appointmentTime: "Today 2:30 PM",
 };
 
+const DEFAULT_MARKET = "chicago";
+
 const ADD_ONS = [
   { id: "oil-filter", name: "Oil and Filter Change - Add On", price: 82.62 },
   { id: "front-wipers", name: "Front Windshield Wipers - Add On", price: 39.99 },
@@ -230,10 +232,12 @@ export default function ReGoCustomerShell() {
     providers,
     selectedProviderId,
     appointmentTime,
-    request: { service: selectedService, fulfillment },
+    request: { service: selectedService, fulfillment, market: DEFAULT_MARKET },
   }), [appointmentTime, fulfillment, selectedProviderId, selectedService]);
   const selectedProvider = providerSelection.provider;
-  const providerMatches = useMemo(() => getProviderMatchingResults(providers, { service: selectedService, fulfillment }).matches, [fulfillment, selectedService]);
+  const effectiveProviderId = providerSelection.selectedProviderId;
+  const effectiveAppointmentTime = providerSelection.appointmentTime;
+  const providerMatches = useMemo(() => getProviderMatchingResults(providers, { service: selectedService, fulfillment, market: DEFAULT_MARKET }).matches, [fulfillment, selectedService]);
   const estimate = useMemo(() => calculateEstimate({ service: selectedService, oil: selectedOil, fulfillment }), [fulfillment, selectedOil, selectedService]);
   const estimateCopy = getEstimateStatusCopy(estimate, { service: selectedService, provider: selectedProvider });
   const addOnTotal = selectedAddOns.reduce((sum, addOnId) => sum + (ADD_ONS.find((addOn) => addOn.id === addOnId)?.price ?? 0), 0);
@@ -253,10 +257,10 @@ export default function ReGoCustomerShell() {
     oil: selectedOil,
     provider: selectedProvider,
     vehicle,
-    appointmentTime,
+    appointmentTime: effectiveAppointmentTime,
     estimate,
     confirmed: bookingConfirmed,
-  }), [appointmentTime, bookingConfirmed, estimate, fulfillment, selectedOil, selectedProvider, selectedService, vehicle]);
+  }), [bookingConfirmed, effectiveAppointmentTime, estimate, fulfillment, selectedOil, selectedProvider, selectedService, vehicle]);
   const steps = getBookingSteps(bookingDraft);
   const confirmationGuidance = getConfirmationGuidance(bookingDraft);
   const isOilService = selectedService.id === "oil-change";
@@ -271,6 +275,7 @@ export default function ReGoCustomerShell() {
         oilOptions,
         providers,
         deriveProviderSelection,
+        market: DEFAULT_MARKET,
       });
       if (normalizedDraft) {
         // Loading after mount avoids server/client hydration mismatches for browser-only localStorage.
@@ -289,8 +294,8 @@ export default function ReGoCustomerShell() {
 
   useEffect(() => {
     if (!draftHydrated) return;
-    saveBookingDraft({ vehicle, selectedServiceId, fulfillmentId, selectedProviderId, selectedOilId, appointmentTime });
-  }, [appointmentTime, draftHydrated, fulfillmentId, selectedOilId, selectedProviderId, selectedServiceId, vehicle]);
+    saveBookingDraft({ vehicle, selectedServiceId, fulfillmentId, selectedProviderId: effectiveProviderId, selectedOilId, appointmentTime: effectiveAppointmentTime });
+  }, [draftHydrated, effectiveAppointmentTime, effectiveProviderId, fulfillmentId, selectedOilId, selectedServiceId, vehicle]);
 
   function chooseHeroService(heroService) {
     setSelectedHeroServiceId(heroService.id);
@@ -343,7 +348,9 @@ export default function ReGoCustomerShell() {
   function finishLocation() {
     const nextBooking = transitionBooking(bookingDraft, "confirm");
     setBookingConfirmed(nextBooking.confirmed === true);
-    setActiveModal(null);
+    if (nextBooking.confirmed === true) {
+      setActiveModal(null);
+    }
   }
 
   function toggleAddressEditing() {
@@ -430,7 +437,7 @@ export default function ReGoCustomerShell() {
           </div>
           <button type="button" onClick={startScheduling} className="mt-4 h-[40px] w-full rounded-lg bg-black text-[13px] font-black text-white shadow-lg transition hover:bg-slate-800">Schedule Now</button>
           {bookingConfirmed && (
-            <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center text-[12px] font-black text-emerald-800">Booking confirmed for {appointmentTime} with {selectedProvider?.name ?? "your provider"}. We&apos;ll keep this compact confirmation visible after checkout.</p>
+            <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center text-[12px] font-black text-emerald-800">Booking confirmed for {effectiveAppointmentTime} with {selectedProvider?.name ?? "your provider"}. We&apos;ll keep this compact confirmation visible after checkout.</p>
           )}
           <p className="mt-3 text-center text-[11px] font-semibold text-slate-500">{draftNotice}</p>
         </div>

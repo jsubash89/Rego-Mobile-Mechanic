@@ -224,34 +224,13 @@ function buildMatchingRequest(job = {}) {
   };
 }
 
-function sortProviderLikeMatches(matches) {
-  return [...matches].sort((a, b) => {
-    if ((b.score ?? 0) !== (a.score ?? 0)) return (b.score ?? 0) - (a.score ?? 0);
-    return String(a.providerId).localeCompare(String(b.providerId));
-  });
-}
-
 function getAssignmentCandidates(job = {}, providers = []) {
   const request = buildMatchingRequest(job);
   const results = getProviderMatchingResults(providers, request);
-  const marketChecked = [
-    ...results.matches.map((match) => ({ ...match })),
-    ...results.ineligible.map((match) => ({ ...match })),
-  ].map((match) => {
-    const providerMarket = match.provider?.serviceArea?.market;
-    if (hasText(request.market) && hasText(providerMarket) && providerMarket !== request.market) {
-      return {
-        ...match,
-        eligible: false,
-        exclusions: [...asArray(match.exclusions), `Provider market ${providerMarket} does not cover job market ${request.market}`],
-      };
-    }
-    return match;
-  });
 
   return {
-    matches: sortProviderLikeMatches(marketChecked.filter((match) => match.eligible)),
-    ineligible: marketChecked.filter((match) => !match.eligible),
+    matches: results.matches,
+    ineligible: results.ineligible,
   };
 }
 

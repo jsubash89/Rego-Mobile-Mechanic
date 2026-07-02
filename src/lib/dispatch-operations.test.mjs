@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import dispatchOperations from "./dispatch-operations.js";
+import matching from "./provider-matching.js";
 
 const {
   DISPATCH_JOB_STATES,
@@ -17,6 +18,8 @@ const {
   getReassignCandidate,
   groupDispatchJobs,
 } = dispatchOperations;
+
+const { getProviderMatchingResults } = matching;
 
 function provider(overrides = {}) {
   return {
@@ -109,6 +112,44 @@ test("wrong-market provider is not eligible or assignable", () => {
   assert.ok(eligibility.blockers.includes("Provider market detroit does not cover job market chicago"));
   assert.equal(result.ok, false);
   assert.ok(result.blockers.includes("Provider market detroit does not cover job market chicago"));
+});
+
+test("assignment candidates rely on matching market normalization without duplicate stricter exclusions", () => {
+  const candidates = getAssignmentCandidates(job({ market: " chicago " }), [
+    provider({ id: "variant", serviceArea: { market: "Chicago", maxTravelMiles: 8 } }),
+    provider({ id: "detroit", serviceArea: { market: " Detroit ", maxTravelMiles: 8 } }),
+  ]);
+
+  assert.deepEqual(candidates.matches.map((match) => match.providerId), ["variant"]);
+  const detroit = candidates.ineligible.find((match) => match.providerId === "detroit");
+  assert.equal(detroit.exclusions.filter((exclusion) => exclusion.includes("does not cover job market")).length, 1);
+});
+
+test("assignment candidates preserve provider matching ranking as the single source", () => {
+  const providers = [
+    provider({ id: "alpha", distance: 1, availability: { available: true, earliestSlot: "Today 4:00 PM", rank: 1 } }),
+    provider({ id: "zulu", distance: 6, availability: { available: true, earliestSlot: "Today 2:00 PM", rank: 0 } }),
+  ];
+  const dispatchJob = job({ providerDistances: {} });
+  const request = {
+    service: {
+      id: dispatchJob.serviceId,
+      name: dispatchJob.serviceName,
+      requiresPartsFitment: dispatchJob.requiresPartsFitment,
+      providerConfirmationRequired: dispatchJob.providerConfirmationRequired,
+    },
+    fulfillment: { id: dispatchJob.fulfillmentId },
+    market: dispatchJob.market,
+    providerDistances: dispatchJob.providerDistances,
+    providerCoverage: dispatchJob.providerCoverage,
+  };
+
+  const matchingResults = getProviderMatchingResults(providers, request);
+  const candidates = getAssignmentCandidates(dispatchJob, providers);
+
+  assert.equal(matchingResults.matches[0].providerId, "zulu");
+  assert.equal(matchingResults.matches[0].score, matchingResults.matches[1].score);
+  assert.deepEqual(candidates.matches.map((match) => match.providerId), matchingResults.matches.map((match) => match.providerId));
 });
 
 test("assignment actions fail closed without provider eligibility context", () => {

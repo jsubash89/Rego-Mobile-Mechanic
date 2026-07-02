@@ -63,6 +63,24 @@ function hasExplicitServiceAreaCoverage(provider, request = {}) {
   );
 }
 
+function hasText(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function normalizeMarket(value) {
+  return hasText(value) ? String(value).trim().toLowerCase() : null;
+}
+
+function getRequestMarket(request = {}) {
+  const markets = [request.market, request.locationProxy?.market, request.location?.market];
+  return markets.find(hasText) ?? null;
+}
+
+function getProviderMarket(provider = {}) {
+  const markets = [provider.serviceArea?.market, provider.market];
+  return markets.find(hasText) ?? null;
+}
+
 function getEarliestSlot(provider) {
   return provider.availability?.earliestSlot ?? provider.earliest ?? null;
 }
@@ -149,6 +167,10 @@ function explainEligibility(provider, request = {}) {
   const distanceMiles = getProviderDistanceMiles(provider, request);
   const travelCapMiles = getTravelCapMiles(provider);
   const earliestSlot = getEarliestSlot(provider);
+  const requestMarket = getRequestMarket(request);
+  const providerMarket = getProviderMarket(provider);
+  const normalizedRequestMarket = normalizeMarket(requestMarket);
+  const normalizedProviderMarket = normalizeMarket(providerMarket);
   const reasons = [];
   const exclusions = [];
 
@@ -179,6 +201,16 @@ function explainEligibility(provider, request = {}) {
       reasons.push(`${distanceMiles} mi away within ${travelCapMiles} mi travel cap`);
     } else {
       reasons.push("Service area coverage confirmed");
+    }
+  }
+
+  if (normalizedRequestMarket) {
+    if (!normalizedProviderMarket) {
+      exclusions.push("Provider market unavailable for requested job market");
+    } else if (normalizedProviderMarket !== normalizedRequestMarket) {
+      exclusions.push(`Provider market ${providerMarket} does not cover job market ${requestMarket}`);
+    } else {
+      reasons.push(`Covers ${String(requestMarket).trim()} market`);
     }
   }
 
@@ -290,4 +322,5 @@ module.exports = {
   chooseSelectedProvider,
   deriveProviderSelection,
   serviceNeedsProviderConfirmation,
+  normalizeMarket,
 };

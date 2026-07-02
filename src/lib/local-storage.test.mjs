@@ -206,6 +206,101 @@ describe("local storage helpers", () => {
     assert.equal(draft.vehicle.vinLast6, "123456");
   });
 
+  it("passes market to provider derivation and falls back from a wrong-market persisted provider/time", () => {
+    const deriveCalls = [];
+    const { draft, changed } = normalizeBookingDraft({
+      selectedServiceId: "oil-change",
+      fulfillmentId: "mobile",
+      selectedOilId: "recommended",
+      selectedProviderId: "detroit",
+      appointmentTime: "Tomorrow 9:00 AM",
+      vehicle: { year: "2021", make: "Toyota", model: "RAV4" },
+    }, {
+      defaultDraft: {
+        selectedServiceId: "oil-change",
+        fulfillmentId: "mobile",
+        selectedOilId: "recommended",
+        address: "Saved coarse location label",
+      },
+      services: [{ id: "oil-change", name: "Oil" }],
+      fulfillmentOptions: [{ id: "mobile" }],
+      oilOptions: [{ id: "recommended" }],
+      market: " chicago ",
+      providers: [
+        {
+          id: "detroit",
+          serviceIds: ["oil-change"],
+          fulfillmentModes: ["mobile"],
+          availability: { available: true, earliestSlot: "Tomorrow 9:00 AM", rank: 0 },
+          distance: 2,
+          serviceArea: { market: "detroit", maxTravelMiles: 8 },
+        },
+        {
+          id: "chicago",
+          serviceIds: ["oil-change"],
+          fulfillmentModes: ["mobile"],
+          availability: { available: true, earliestSlot: "Today 3:00 PM", rank: 1 },
+          distance: 3,
+          serviceArea: { market: "Chicago", maxTravelMiles: 8 },
+        },
+      ],
+      deriveProviderSelection(args) {
+        deriveCalls.push(args);
+        return deriveProviderSelection(args);
+      },
+    });
+
+    assert.equal(deriveCalls.length, 1);
+    assert.equal(deriveCalls[0].request.market, " chicago ");
+    assert.equal(changed, true);
+    assert.equal(draft.selectedProviderId, "chicago");
+    assert.equal(draft.appointmentTime, "Today 3:00 PM");
+  });
+
+  it("passes locationProxy with blank market to provider derivation and clears wrong-market provider/time when no fallback exists", () => {
+    const deriveCalls = [];
+    const { draft, changed } = normalizeBookingDraft({
+      selectedServiceId: "oil-change",
+      fulfillmentId: "mobile",
+      selectedOilId: "recommended",
+      selectedProviderId: "detroit",
+      appointmentTime: "Tomorrow 9:00 AM",
+      vehicle: { year: "2021", make: "Toyota", model: "RAV4" },
+    }, {
+      defaultDraft: {
+        selectedServiceId: "oil-change",
+        fulfillmentId: "mobile",
+        selectedOilId: "recommended",
+      },
+      services: [{ id: "oil-change", name: "Oil" }],
+      fulfillmentOptions: [{ id: "mobile" }],
+      oilOptions: [{ id: "recommended" }],
+      market: "   ",
+      locationProxy: { market: "CHICAGO" },
+      providers: [
+        {
+          id: "detroit",
+          serviceIds: ["oil-change"],
+          fulfillmentModes: ["mobile"],
+          availability: { available: true, earliestSlot: "Tomorrow 9:00 AM", rank: 0 },
+          distance: 2,
+          serviceArea: { market: "detroit", maxTravelMiles: 8 },
+        },
+      ],
+      deriveProviderSelection(args) {
+        deriveCalls.push(args);
+        return deriveProviderSelection(args);
+      },
+    });
+
+    assert.equal(deriveCalls.length, 1);
+    assert.equal(deriveCalls[0].request.market, "   ");
+    assert.deepEqual(deriveCalls[0].request.locationProxy, { market: "CHICAGO" });
+    assert.equal(changed, true);
+    assert.equal(draft.selectedProviderId, null);
+    assert.equal(draft.appointmentTime, null);
+  });
+
   it("keeps safe persisted vehicle UX details through booking draft normalization", () => {
     const defaultDraft = {
       selectedServiceId: "oil-change",

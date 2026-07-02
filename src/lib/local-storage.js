@@ -188,6 +188,8 @@ function normalizeBookingDraft(draft, {
   providers = [],
   deriveProviderSelection,
   chooseSelectedProvider,
+  market,
+  locationProxy,
 } = {}) {
   if (!draft || typeof draft !== "object" || Array.isArray(draft)) {
     return { draft: null, changed: false };
@@ -200,7 +202,13 @@ function normalizeBookingDraft(draft, {
   const fulfillment = fulfillmentOptions.find((option) => option.id === fulfillmentId) ?? null;
   const draftVehicle = draft.vehicle;
   const vehicle = normalizeDraftVehicle(draftVehicle, defaultDraft.vehicle);
-  const providerRequest = { service, fulfillment, vehicle };
+  const providerRequest = {
+    service,
+    fulfillment,
+    vehicle,
+    ...(market != null ? { market } : {}),
+    ...(locationProxy != null ? { locationProxy } : {}),
+  };
   const providerSelection = typeof deriveProviderSelection === "function"
     ? deriveProviderSelection({
       providers,

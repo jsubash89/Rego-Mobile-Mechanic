@@ -125,6 +125,79 @@ test("mobile providers with unknown distance can match when service-area coverag
   assert.ok(matches[0].reasons.includes("Service area coverage confirmed"));
 });
 
+test("providers outside the request market are excluded with a market reason", () => {
+  const results = getProviderMatchingResults([
+    provider({ id: "detroit", serviceArea: { market: "detroit", maxTravelMiles: 8 } }),
+  ], {
+    service: inspection,
+    fulfillment: mobile,
+    market: "chicago",
+  });
+
+  assert.equal(results.matches.length, 0);
+  assert.equal(results.ineligible[0].providerId, "detroit");
+  assert.ok(results.ineligible[0].exclusions.includes("Provider market detroit does not cover job market chicago"));
+});
+
+test("provider market comparison ignores case and surrounding whitespace", () => {
+  const results = getProviderMatchingResults([
+    provider({ id: "chicago", serviceArea: { market: " Chicago ", maxTravelMiles: 8 } }),
+    provider({ id: "detroit", serviceArea: { market: " Detroit ", maxTravelMiles: 8 } }),
+  ], {
+    service: inspection,
+    fulfillment: mobile,
+    market: " chicago ",
+  });
+
+  assert.deepEqual(results.matches.map((match) => match.providerId), ["chicago"]);
+  assert.equal(results.ineligible.find((match) => match.providerId === "detroit")?.eligible, false);
+});
+
+test("providers with unavailable market are excluded when request market is known", () => {
+  const results = getProviderMatchingResults([
+    provider({ id: "missing-market", serviceArea: { maxTravelMiles: 8 } }),
+    provider({ id: "blank-market", serviceArea: { market: "   ", maxTravelMiles: 8 } }),
+  ], {
+    service: inspection,
+    fulfillment: mobile,
+    market: "chicago",
+  });
+
+  assert.equal(results.matches.length, 0);
+  assert.deepEqual(results.ineligible.map((match) => match.providerId), ["missing-market", "blank-market"]);
+  assert.ok(results.ineligible.every((match) => match.exclusions.includes(
+    "Provider market unavailable for requested job market",
+  )));
+});
+
+test("providers without a market can match when no request market is known", () => {
+  const matches = rankProviderMatches([provider({ id: "missing-market", serviceArea: { maxTravelMiles: 8 } })], {
+    service: inspection,
+    fulfillment: mobile,
+  });
+
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].providerId, "missing-market");
+});
+
+test("blank request market falls back to locationProxy market before excluding wrong-market providers", () => {
+  const results = getProviderMatchingResults([
+    provider({ id: "chicago", serviceArea: { market: " chicago ", maxTravelMiles: 8 } }),
+    provider({ id: "detroit", serviceArea: { market: " Detroit ", maxTravelMiles: 8 } }),
+  ], {
+    service: inspection,
+    fulfillment: mobile,
+    market: "   ",
+    locationProxy: { market: " CHICAGO " },
+  });
+
+  assert.deepEqual(results.matches.map((match) => match.providerId), ["chicago"]);
+  assert.equal(results.ineligible.find((match) => match.providerId === "detroit")?.eligible, false);
+  assert.ok(results.ineligible.find((match) => match.providerId === "detroit")?.exclusions.includes(
+    "Provider market  Detroit  does not cover job market  CHICAGO ",
+  ));
+});
+
 test("provider-confirmed services require parts/fitment confirmation support", () => {
   const results = getProviderMatchingResults([
     provider({
@@ -159,6 +232,22 @@ test("selected provider fallback returns top eligible match when current selecti
   });
 
   assert.equal(selected.providerId, "fallback");
+});
+
+test("provider selection preserves an eligible current provider and existing time", () => {
+  const selection = deriveProviderSelection({
+    providers: [
+      provider({ id: "current", availability: { available: true, earliestSlot: "Today 2:00 PM", rank: 1 } }),
+      provider({ id: "higher-score", availability: { available: true, earliestSlot: "Today 1:00 PM", rank: 0 } }),
+    ],
+    selectedProviderId: "current",
+    appointmentTime: "Today 3:30 PM",
+    request: { service: inspection, fulfillment: mobile },
+  });
+
+  assert.equal(selection.selectedProviderId, "current");
+  assert.equal(selection.appointmentTime, "Today 3:30 PM");
+  assert.equal(selection.changed, false);
 });
 
 test("selected provider returns null and booking cannot confirm when no eligible match exists", () => {
