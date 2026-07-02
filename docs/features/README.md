@@ -3,6 +3,7 @@
 Every feature below has its own build spec. Add implementation only after the feature doc contains acceptance criteria and tests.
 
 Customer:
+- customer/createxyz-ux-fidelity.md
 - customer/booking-flow.md
 - customer/service-selection.md
 - customer/vehicle-garage.md

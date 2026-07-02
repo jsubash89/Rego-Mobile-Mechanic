@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { fulfillmentOptions } from "@/data/fulfillment";
+import { CREATE_XYZ_HERO_ASSET, CUSTOMER_NAV_ITEMS, HERO_SERVICES, LOCATION_TYPES, SCHEDULE_OPTIONS } from "@/data/createxyz-ux";
 import { providerJobs as seededProviderJobs } from "@/data/provider-jobs";
 import { dispatchJobs as seededDispatchJobs } from "@/data/dispatch-jobs";
 import { providers } from "@/data/providers";
@@ -35,15 +36,6 @@ const DEFAULT_BOOKING_DRAFT = {
   vehicle: { ...minimizeVehicleIdentity(initialVehicle), year: "2024", model: "Camry", trim: "LE", engine: "2.5L 4-Cylinder", transmission: "Automatic" },
   appointmentTime: "Today 2:30 PM",
 };
-
-const HERO_SERVICES = [
-  { id: "oil-change", name: "Oil Change", icon: "▰", engineServiceId: "oil-change" },
-  { id: "brakes", name: "Brakes", icon: "◎", engineServiceId: "brakes" },
-  { id: "battery", name: "Battery", icon: "▣", engineServiceId: "diagnostic" },
-  { id: "tow", name: "Car Tow", icon: "⚑", engineServiceId: null },
-  { id: "pickup", name: "Schedule a Pick Up", icon: "▾", engineServiceId: "inspection" },
-  { id: "other", name: "Other Services", icon: "•••", engineServiceId: "diagnostic" },
-];
 
 const ADD_ONS = [
   { id: "oil-filter", name: "Oil and Filter Change - Add On", price: 82.62 },
@@ -405,9 +397,9 @@ export default function ReGoCustomerShell() {
             <span>Mobile Mechanic</span>
           </div>
           <nav className="hidden items-center gap-7 text-[12px] font-bold md:flex">
-            <a href="#service-area" className="hover:text-[#ffd400]">Service Area</a>
-            <a href="#about" className="hover:text-[#ffd400]">About Us</a>
-            <a href="#demo-access" className="hover:text-[#ffd400]">Mechanic Sign Up</a>
+            {CUSTOMER_NAV_ITEMS.map((item) => (
+              <a key={item.href} href={item.href} className="hover:text-[#ffd400]">{item.label}</a>
+            ))}
             <button type="button" className="hover:text-[#ffd400]">Login</button>
             <button type="button" className="rounded-md bg-[#ffd400] px-4 py-2 text-black hover:bg-[#e9c000]">Sign Up</button>
           </nav>
@@ -443,15 +435,13 @@ export default function ReGoCustomerShell() {
           <p className="mt-3 text-center text-[11px] font-semibold text-slate-500">{draftNotice}</p>
         </div>
 
-        <div className="relative h-[467px] overflow-hidden rounded-[10px] bg-gradient-to-br from-[#2a221d] via-[#5e4631] to-[#0f253a] shadow-xl">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_65%_20%,rgba(255,223,175,0.25),transparent_28%),radial-gradient(circle_at_35%_35%,rgba(255,255,255,0.16),transparent_18%)]" />
-          <div className="absolute bottom-0 left-0 right-0 h-[58%] bg-gradient-to-t from-[#0b1f31] via-[#1f4f77]/70 to-transparent" />
-          <div className="absolute left-1/2 top-[38px] h-[210px] w-[210px] -translate-x-1/2 rounded-full bg-gradient-to-br from-[#c58a5c] to-[#6d3f27] shadow-2xl" />
-          <div className="absolute bottom-0 left-[78px] h-[270px] w-[260px] rounded-t-[120px] bg-gradient-to-br from-[#1f4e74] via-[#173b59] to-[#0d2235] shadow-2xl" />
-          <div className="absolute left-[42px] top-[92px] max-w-[170px] rounded-2xl bg-white/12 p-4 text-white backdrop-blur-sm">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/70">Vetted mechanic</p>
-            <p className="mt-2 text-2xl font-black">Friendly service, no shop waiting room.</p>
-          </div>
+        <div
+          aria-label="Smiling ReGo mechanic ready for mobile service"
+          className="relative h-[467px] overflow-hidden rounded-[10px] bg-[#d8d8d8] bg-cover bg-center shadow-xl"
+          role="img"
+          style={{ backgroundImage: `url(${CREATE_XYZ_HERO_ASSET})` }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-t from-black/10 via-transparent to-white/5" />
           <div className="absolute bottom-5 right-5 rounded-full bg-white px-4 py-2 text-xs font-black text-black shadow-lg">4.9 ★ trusted</div>
         </div>
       </section>
@@ -464,6 +454,11 @@ export default function ReGoCustomerShell() {
       <section id="service-area" className="mx-auto max-w-6xl px-6 py-10">
         <div className="grid gap-4 md:grid-cols-3">
           {steps.slice(0, 3).map((step) => <div key={step.id} className="rounded-2xl border border-slate-200 p-5"><strong>{step.number}. {step.label}</strong><p className="mt-2 text-sm text-slate-600">{step.complete ? "Ready" : step.active ? "Current step" : "Upcoming"}</p></div>)}
+        </div>
+        <div id="mechanic-signup-info" className="mt-8 rounded-2xl border border-slate-200 bg-white p-5">
+          <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">Mechanic Sign Up</p>
+          <h3 className="mt-2 text-xl font-black text-slate-900">Interested in servicing ReGo customers?</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Provider onboarding remains separated from the customer booking path. This customer-nav link preserves the create.xyz label while keeping internal provider and dispatch demo controls out of top-level customer navigation.</p>
         </div>
       </section>
 
@@ -517,9 +512,12 @@ export default function ReGoCustomerShell() {
         <ModalShell onClose={() => setActiveModal(null)}>
           <div className="p-4">
             <h2 className="text-[16px] font-black">How would you like to schedule?</h2>
-            <div className="mt-3 space-y-2">
-              {["Specific Date and Time", "Flexible Days and Time", "Earliest Available"].map((option) => (
-                <button key={option} type="button" onClick={() => continueFromSchedule(option)} className={`w-full rounded border px-3 py-3 text-left text-[12px] font-bold ${schedulePreference === option ? "border-black bg-slate-50" : "border-[#d9dee8] bg-white"}`}>{option}</button>
+            <div className="mt-4 space-y-3">
+              {SCHEDULE_OPTIONS.map((option) => (
+                <button key={option.label} type="button" onClick={() => continueFromSchedule(option.label)} className={`flex min-h-[72px] w-full items-center gap-3 rounded border px-4 py-3 text-left ${schedulePreference === option.label ? "border-black bg-slate-50" : "border-[#d9dee8] bg-white"}`}>
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f0f2f5] text-[16px] font-black">●</span>
+                  <span><strong className="block text-[13px]">{option.label}</strong><span className="mt-1 block text-[11px] font-semibold leading-4 text-slate-500">{option.helper}</span></span>
+                </button>
               ))}
             </div>
           </div>
@@ -530,7 +528,10 @@ export default function ReGoCustomerShell() {
         <ModalShell onClose={() => setActiveModal(null)} wide>
           <div className="bg-[#f4f5f7] pb-4">
             <div className="rounded-t bg-black p-5 text-white">
-              <h2 className="text-[24px] font-black">Service Details</h2>
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="text-[24px] font-black">Service Details</h2>
+                <button type="button" onClick={() => setActiveModal("vehicle")} className="rounded bg-white px-3 py-2 text-[11px] font-black text-black">Change Service</button>
+              </div>
               <p className="mt-2 text-[12px] font-bold">▣ {vehicle.year} {vehicle.make} {vehicle.model}</p>
               <p className="mt-1 text-[12px] font-bold">▰ {selectedHeroService.name} Service</p>
             </div>
@@ -599,15 +600,15 @@ export default function ReGoCustomerShell() {
               <input ref={addressInputRef} value={address} readOnly={!addressEditing} onChange={(event) => setAddress(event.target.value)} className={`w-full outline-none ${addressEditing ? "bg-white" : "bg-transparent"}`} />
               <button type="button" onClick={toggleAddressEditing} className="shrink-0 text-[11px] text-blue-700">{addressEditing ? "Done" : "Change Address"}</button>
             </div>
-            <div className="mt-4 flex flex-wrap gap-3 text-[12px]">
-              {["Home", "Work", "Other", "Garage", "Driveway", "Parking Lot"].map((type) => (
-                <label key={type} className="inline-flex items-center gap-1"><input type="radio" checked={locationType === type} onChange={() => setLocationType(type)} />{type}</label>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-[12px] sm:grid-cols-3">
+              {LOCATION_TYPES.map((type) => (
+                <label key={type} className={`inline-flex h-9 items-center gap-2 rounded border px-3 font-semibold ${locationType === type ? "border-black bg-slate-50" : "border-[#d9dee8] bg-white"}`}><input type="radio" checked={locationType === type} onChange={() => setLocationType(type)} />{type}</label>
               ))}
             </div>
             <label className="mt-4 block text-[12px]">Location Notes
               <textarea value={locationNotes} maxLength={1000} onChange={(event) => setLocationNotes(event.target.value)} placeholder="Let us know details of how to find your car." className="mt-2 h-[78px] w-full rounded border border-[#d9dee8] p-3 text-[12px] outline-none focus:border-black" />
             </label>
-            <p className="mt-2 text-[11px] text-slate-500">{1000 - locationNotes.length} characters left</p>
+            <p className="mt-2 text-[11px] text-slate-500">1000 character maximum · {1000 - locationNotes.length} characters left</p>
             <div className="mt-4 flex justify-between"><button type="button" onClick={() => setActiveModal("details")} className="rounded bg-[#e5e7eb] px-4 py-2 text-[12px] font-bold">Back</button><button type="button" onClick={finishLocation} className="rounded bg-black px-5 py-2 text-[12px] font-bold text-white">Next</button></div>
             {bookingConfirmed && <p className="mt-3 rounded bg-emerald-50 p-2 text-[12px] font-bold text-emerald-800">Booking ready. Confirmation is in memory only and is not persisted.</p>}
             {!confirmationGuidance.ready && <p className="mt-3 rounded bg-amber-50 p-2 text-[12px] font-bold text-amber-800">{confirmationGuidance.message}</p>}
