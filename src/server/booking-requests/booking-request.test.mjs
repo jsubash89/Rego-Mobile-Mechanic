@@ -181,7 +181,7 @@ test("service delegates persistence and returns only the safe public response", 
   });
   const result = await service.create(clone(validInput), "idem-1234567890");
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].status, "new");
+  assert.equal(calls[0].status, "pending_review");
   assert.equal(calls[0].consentedAt.toISOString(), createdAt.toISOString());
   assert.match(calls[0].requestFingerprint, /^[a-f0-9]{64}$/);
   assert.deepEqual(Object.keys(result).sort(), ["createdAt", "publicReference", "status", "summary"]);

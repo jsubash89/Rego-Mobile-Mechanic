@@ -30,6 +30,12 @@ export function createRetentionHandler({ pool, env = process.env, purge = purgeE
         deleted += lastBatchDeleted;
         batches += 1;
       }
+      if (pool?.query) {
+        await pool.query(`DELETE FROM operator_login_rate_limit_windows WHERE ctid IN
+          (SELECT ctid FROM operator_login_rate_limit_windows WHERE expires_at <= now() LIMIT 1000)`);
+        await pool.query(`DELETE FROM operator_sessions WHERE session_hash IN
+          (SELECT session_hash FROM operator_sessions WHERE expires_at <= now() OR revoked_at <= now() - interval '24 hours' LIMIT 1000)`);
+      }
       return Response.json({ ok: true, deleted, batches, backlogRemaining: batches === maxBatches && lastBatchDeleted === batchSize });
     } catch {
       return Response.json({ error: "retention_unavailable" }, { status: 503 });

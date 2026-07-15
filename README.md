@@ -101,3 +101,17 @@ operator coverage verification.
 
 - `docs/PROJECT_BRIEF.md`
 - `docs/plans/mobile-mechanic-build-plan.md`
+
+## Pilot operator request inbox
+
+`/operator/requests` is a PostgreSQL-backed, server-protected pilot inbox and is
+intentionally not linked from the customer experience. Apply migrations 005–006 and
+configure three distinct server-only secrets of at least 32 bytes:
+`OPERATOR_SHARED_SECRET`, `OPERATOR_SESSION_SECRET`, and
+`OPERATOR_RATE_LIMIT_SECRET`, plus an exact URL origin (no trailing slash/path) in
+`OPERATOR_CANONICAL_ORIGIN`. Production fails closed when any is absent, weak,
+or reused. Operators see masked queue rows and must deliberately reveal exact
+PII. The pilot supports only request review/contact/accept/reject/cancel status
+work; it does not take payments, set prices, or assign providers.
+Outside Vercel production, also configure the authenticated trusted-proxy
+contract shown in `.env.example`; untrusted forwarding headers are ignored.

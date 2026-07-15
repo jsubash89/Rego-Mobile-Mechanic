@@ -32,7 +32,7 @@ async function withDatabase(t, callback) {
 }
 function record(suffix = "one") {
   return {
-    idempotencyKey: `js889-${suffix}-1234567890`, requestFingerprint: "a".repeat(64), status: "new",
+    idempotencyKey: `js889-${suffix}-1234567890`, requestFingerprint: "a".repeat(64), status: "pending_review",
     responseSummary: { customerName: "Integration Customer", serviceName: "Check-engine diagnostic", fulfillmentLabel: "Mobile mechanic", vehicle: "2020 Honda Accord", quoteRequired: false },
     customer: { name: "Integration Customer", email: null, phone: ["+1", "312", "555", "0199"].join("") },
     consentedAt: new Date("2026-07-14T12:00:00.000Z"), consentSource: "booking_request_form", marketId: "chicago",
@@ -54,7 +54,7 @@ test("fresh migration is serialized, checksummed, and creates required integrity
   await withDatabase(t, async ({ pool }) => {
     await Promise.all([runMigrations({ pool }), runMigrations({ pool }), runMigrations({ pool })]);
     const migrations = await pool.query("SELECT name, checksum FROM schema_migrations");
-    assert.equal(migrations.rowCount, 4);
+    assert.equal(migrations.rowCount, 6);
     for (const migration of migrations.rows) assert.match(migration.checksum, /^[a-f0-9]{64}$/);
     const checksumColumn = await pool.query("SELECT is_nullable FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'schema_migrations' AND column_name = 'checksum'");
     assert.equal(checksumColumn.rows[0].is_nullable, "NO");
@@ -75,6 +75,7 @@ test("migration 003 fails closed when legacy rows violate the 002 postal constra
     await writeFile(path.join(directory, migrationName), sql);
     await runMigrations({ pool, migrationsDirectory: directory });
     const legacy = record(randomUUID());
+    legacy.status = "new";
     legacy.location.postalCode = "48201";
     await createBookingRequestRepository({ pool }).create(legacy);
     await assert.rejects(() => runMigrations({ pool }), /booking_requests_location_chicago_postal_code/);

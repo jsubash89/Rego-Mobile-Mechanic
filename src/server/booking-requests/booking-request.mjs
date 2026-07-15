@@ -216,7 +216,7 @@ export function createBookingRequestService({ repository, now = () => new Date()
       quoteRequired: normalized.quoteRequired,
     };
     const stored = await repository.create({
-      idempotencyKey: key, requestFingerprint, responseSummary, status: "new",
+      idempotencyKey: key, requestFingerprint, responseSummary, status: "pending_review",
       customer: normalized.customer, consentedAt: createdAt, consentSource: normalized.consent.source,
       marketId: normalized.marketId, service: normalized.service, fulfillment: normalized.fulfillment, providerPreference: normalized.providerPreference,
       oilOption: normalized.oilOption, vehicle: normalized.vehicle, schedulePreference: normalized.schedulePreference,

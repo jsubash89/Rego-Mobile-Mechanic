@@ -82,7 +82,7 @@ test("customer submits a durable pending-review request with truthful confirmati
       FROM booking_requests br LEFT JOIN booking_request_events ev ON ev.booking_request_id = br.id
       WHERE br.public_reference = $1 GROUP BY br.id`, [reference]);
     return result.rows[0];
-  }).toMatchObject({ market_id: "chicago", status: "new", event_count: 1 });
+  }).toMatchObject({ market_id: "chicago", status: "pending_review", event_count: 1 });
 
   const stored = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage }, url: location.href }));
   const serialized = JSON.stringify(stored);
