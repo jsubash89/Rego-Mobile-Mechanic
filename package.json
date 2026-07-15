@@ -11,6 +11,7 @@
     "test:booking": "node --test src/server/booking-requests/booking-request.test.mjs src/server/booking-requests/repository.integration.test.mjs src/app/api/booking-requests/route.test.mjs",
     "test:rego": "TEST_DATABASE_URL=postgresql:///rego_test node --test",
     "db:migrate": "node scripts/migrate.mjs",
+    "privacy:purge": "node scripts/purge-booking-requests.mjs",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:update": "playwright test --update-snapshots=all"

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createPostHandler, deriveProductionRateKey, productionRatePolicy } from "./route.js";
+import { createPostHandler } from "./route.js";
+
+const allowLimiter = { consume: async () => ({ allowed: true, retryAfter: 1 }) };
 
 const request = (body, key = "idem-1234567890") => new Request("http://localhost/api/booking-requests", {
   method: "POST",
@@ -11,7 +13,7 @@ const request = (body, key = "idem-1234567890") => new Request("http://localhost
 
 test("POST returns 201 with service result", async () => {
   const expected = { publicReference: "BR_1234567890", status: "pending_review", createdAt: "2026-07-14T12:00:00.000Z", summary: {} };
-  const handler = createPostHandler({ service: { create: async () => expected } });
+  const handler = createPostHandler({ service: { create: async () => expected }, rateLimiter: allowLimiter });
   const response = await handler(request({ ok: true }));
   assert.equal(response.status, 201);
   assert.deepEqual(await response.json(), expected);
@@ -19,29 +21,32 @@ test("POST returns 201 with service result", async () => {
 
 test("POST maps validation failures to 400", async () => {
   const error = Object.assign(new Error("Invalid request"), { name: "BookingRequestValidationError", code: "invalid_input" });
-  const handler = createPostHandler({ service: { create: async () => { throw error; } } });
+  const handler = createPostHandler({ service: { create: async () => { throw error; } }, rateLimiter: allowLimiter });
   const response = await handler(request({ bad: true }));
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), { error: "invalid_booking_request", code: "invalid_input" });
 });
 
-test("POST rejects unsupported media, oversized streaming bodies, and rate-limit excess", async () => {
+test("POST rejects unsupported media, oversized streaming bodies, and maps distributed rate-limit excess", async () => {
   const service = { create: async () => ({ ok: true }) };
-  const handler = createPostHandler({ service, bodyLimitBytes: 16, rateLimit: { limit: 2, windowMs: 1000 }, now: () => 0 });
-  const wrong = await handler(new Request("http://localhost", { method: "POST", headers: { "content-type": "text/plain" }, body: "{}" }));
+  const largeHandler = createPostHandler({ service, rateLimiter: allowLimiter, bodyLimitBytes: 16 });
+  const wrong = await largeHandler(new Request("http://localhost", { method: "POST", headers: { "content-type": "text/plain" }, body: "{}" }));
   assert.equal(wrong.status, 415);
-  const large = await handler(new Request("http://localhost", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": "idem-1234567890" }, body: JSON.stringify({ value: "x".repeat(100) }) }));
+  const large = await largeHandler(new Request("http://localhost", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": "idem-1234567890" }, body: JSON.stringify({ value: "x".repeat(100) }) }));
   assert.equal(large.status, 413);
 
-  const roomy = createPostHandler({ service, rateLimit: { limit: 1, windowMs: 1000 }, now: () => 0 });
-  assert.equal((await roomy(request({ ok: true }))).status, 201);
-  assert.equal((await roomy(request({ ok: true }, "idem-1234567891"))).status, 429);
+  let count = 0;
+  const handler = createPostHandler({ service, rateLimiter: { consume: async () => ({ allowed: ++count <= 1, retryAfter: 60 }) } });
+  assert.equal((await handler(request({ ok: true }))).status, 201);
+  const limited = await handler(request({ ok: true }, "idem-1234567891"));
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get("retry-after"), "60");
 });
 
 test("POST maps idempotency conflict to 409 and emits safe correlation telemetry", async () => {
   const logs = [];
   const error = Object.assign(new Error("secret"), { name: "IdempotencyConflictError", code: "idempotency_conflict" });
-  const handler = createPostHandler({ service: { create: async () => { throw error; } }, logger: { error: (...args) => logs.push(args) }, correlationId: () => "corr_123" });
+  const handler = createPostHandler({ service: { create: async () => { throw error; } }, rateLimiter: allowLimiter, logger: { error: (...args) => logs.push(args) }, correlationId: () => "corr_123" });
   const response = await handler(request({ ok: true }));
   assert.equal(response.status, 409);
   assert.deepEqual(await response.json(), { error: "idempotency_conflict", correlationId: "corr_123" });
@@ -52,6 +57,7 @@ test("POST returns generic DB failure and logs no request payload PII", async ()
   const logs = [];
   const handler = createPostHandler({
     service: { create: async () => { throw new Error("db exploded for ada@example.com"); } },
+    rateLimiter: allowLimiter,
     logger: { error: (...args) => logs.push(args) },
   });
   const response = await handler(request({ email: "ada@example.com", address: "123 Main St" }));
@@ -63,19 +69,21 @@ test("POST returns generic DB failure and logs no request payload PII", async ()
   assert.equal(JSON.stringify(logs).includes("123 Main St"), false);
 });
 
-test("production rate keys trust only Vercel-controlled client IP and normalize safely", () => {
-  const vercelRequest = (value, extra = {}) => new Request("http://localhost", { headers: { "x-vercel-forwarded-for": value, ...extra } });
-  assert.equal(deriveProductionRateKey(vercelRequest("203.0.113.7"), { vercel: true }), "client:203.0.113.7");
-  assert.equal(deriveProductionRateKey(vercelRequest("2001:DB8::1"), { vercel: true }), "client:2001:db8::1");
-  assert.equal(deriveProductionRateKey(vercelRequest("bad,203.0.113.7"), { vercel: true }), "vercel:malformed-client-ip");
-  assert.equal(deriveProductionRateKey(vercelRequest("203.0.113.7", { "x-forwarded-for": "198.51.100.4" }), { vercel: false }), "global:circuit-breaker");
+test("POST handler fails closed when no limiter is injected", () => {
+  assert.throws(() => createPostHandler({ service: { create: async () => ({ ok: true }) } }), /distributed rate limiter/i);
 });
 
-test("non-Vercel production policy is a high global circuit breaker, not the old shared 60/min bucket", async () => {
-  const policy = productionRatePolicy({ vercel: false });
-  assert.ok(policy.rateLimit.limit >= 10_000);
-  const handler = createPostHandler({ service: { create: async () => ({ ok: true }) }, ...policy, now: () => 0 });
-  for (let index = 0; index < 61; index += 1) {
-    assert.equal((await handler(request({ index }, `global-circuit-${index}`))).status, 201);
-  }
+test("POST fails closed before persistence when distributed protection is unavailable", async () => {
+  let persisted = false;
+  const logs = [];
+  const handler = createPostHandler({
+    service: { create: async () => { persisted = true; } },
+    rateLimiter: { consume: async () => { throw new Error("raw private detail"); } },
+    logger: { error: (...args) => logs.push(args) },
+    correlationId: () => "safe-correlation",
+  });
+  const response = await handler(request({ ok: true }));
+  assert.equal(response.status, 503);
+  assert.equal(persisted, false);
+  assert.equal(JSON.stringify(logs).includes("raw private detail"), false);
 });

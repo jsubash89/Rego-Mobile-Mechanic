@@ -75,6 +75,8 @@ describe("local storage helpers", () => {
         engine: "2.5L I4",
         transmission: "8-speed automatic",
         vin: "JTMWFREV1MJ123456",
+        vinLast6: "123456",
+        vinLast4: "3456",
         unsupportedNestedValue: { nope: true },
       },
       address: "Home · 220 W Kinzie St, Chicago, IL",
@@ -96,7 +98,6 @@ describe("local storage helpers", () => {
         trim: "XLE Premium",
         engine: "2.5L I4",
         transmission: "8-speed automatic",
-        vinLast6: "123456",
       },
       selectedServiceId: "oil-change",
       fulfillmentId: "mobile",
@@ -108,6 +109,8 @@ describe("local storage helpers", () => {
     const persisted = JSON.parse(storage.dump()[BOOKING_DRAFT_STORAGE_KEY]);
     assert.equal(persisted.address, undefined);
     assert.equal(persisted.vehicle.vin, undefined);
+    assert.equal(persisted.vehicle.vinLast6, undefined);
+    assert.equal(persisted.vehicle.vinLast4, undefined);
     assert.equal(JSON.stringify(persisted).includes("JTMWFREV1MJ123456"), false);
     assert.equal(JSON.stringify(persisted).includes("220 W Kinzie"), false);
   });
@@ -203,7 +206,7 @@ describe("local storage helpers", () => {
     assert.equal(draft.appointmentTime, "Today 4:00 PM");
     assert.equal(draft.address, defaultDraft.address);
     assert.equal(draft.vehicle.vin, undefined);
-    assert.equal(draft.vehicle.vinLast6, "123456");
+    assert.equal(draft.vehicle.vinLast6, undefined);
   });
 
   it("passes market to provider derivation and falls back from a wrong-market persisted provider/time", () => {
@@ -382,7 +385,7 @@ describe("local storage helpers", () => {
       deriveProviderSelection,
     });
 
-    assert.deepEqual(draft.vehicle, { vinLast6: "123456" });
+    assert.deepEqual(draft.vehicle, {});
     assert.equal(canConfirmBooking({
       service,
       fulfillment,

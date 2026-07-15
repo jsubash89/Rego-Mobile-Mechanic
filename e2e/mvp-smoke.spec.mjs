@@ -4,6 +4,11 @@ import { failOnBrowserErrors } from "./helpers/browser-errors.mjs";
 const tiles = ["Oil Change", "Brakes", "Battery", "Car Tow", "Schedule a Pick Up", "Other Services"];
 const browserErrorAssertions = new WeakMap();
 
+async function demoQueueSnapshot(page, queue) {
+  await page.getByRole("button", { name: queue, exact: true }).click();
+  return page.locator(`[data-testid^="${queue}-job-"]`).allTextContents();
+}
+
 async function openDetails(page, { service = "Oil Change", vehicle = {} } = {}) {
   await page.getByRole("button", { name: service, exact: true }).click();
   await page.getByRole("button", { name: "Schedule Now" }).click();
@@ -18,18 +23,6 @@ async function reachLocation(page, options) {
   const details = await openDetails(page, options);
   await details.getByRole("button", { name: "Continue to location" }).click();
   return page.getByRole("dialog", { name: /service the vehicle/i });
-}
-
-async function demoQueueSnapshot(page, demo) {
-  await page.getByRole("button", { name: demo, exact: true }).click();
-  const jobs = page.locator(`[data-testid^="${demo}-job-"]`);
-  await expect(jobs.first()).toBeVisible();
-  const snapshot = await jobs.evaluateAll((nodes) => nodes.map((node) => ({
-    testId: node.getAttribute("data-testid"),
-    text: node.textContent.replace(/\s+/g, " ").trim(),
-  })));
-  await page.getByRole("button", { name: demo, exact: true }).click();
-  return snapshot;
 }
 
 test.beforeEach(async ({ page }) => {
@@ -63,42 +56,46 @@ test("oil details are specific while a non-oil branch omits oil details", async 
 
 test("incomplete vehicle cannot confirm and receives specific guidance", async ({ page }) => {
   const location = await reachLocation(page, { vehicle: { Year: "" } });
-  await location.getByRole("button", { name: "Confirm booking" }).click();
+  await location.getByRole("button", { name: "Submit service request" }).click();
   await expect(location).toBeVisible();
   await expect(location).toContainText(/vehicle.*year/i);
-  await expect(page.getByTestId("booking-confirmation")).toHaveCount(0);
+  await expect(page.getByTestId("request-confirmation")).toHaveCount(0);
 });
 
-test("mock booking confirms without payment and sensitive draft data never persists or restores confirmation", async ({ page }) => {
+test("failed request never claims success and sensitive request data never enters browser storage", async ({ page }) => {
   const fullVin = "1HGCM82633A654321";
   const fullAddress = "9182 Distinctive Lavender Lane, Chicago, IL 60601";
   const privateNote = "Blue gate; secret location note 7419";
+  await page.route("**/api/booking-requests", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ error: "malformed_success_response" }) }));
 
   await page.getByLabel("Service address").fill(fullAddress);
   await page.getByRole("button", { name: "Schedule Now" }).click();
   const vehicleDialog = page.getByRole("dialog", { name: /vehicle/i });
-  await vehicleDialog.getByRole("button", { name: "VIN", exact: true }).click();
-  await vehicleDialog.getByLabel("Vehicle VIN").fill(fullVin);
+  await expect(vehicleDialog.getByLabel("Vehicle VIN", { exact: true })).toHaveCount(0);
+  await vehicleDialog.getByLabel("VIN last 6").fill(fullVin.slice(-6));
   await vehicleDialog.getByRole("button", { name: "Next" }).click();
   await page.getByRole("dialog", { name: /schedule/i }).getByRole("button", { name: /Earliest Available/ }).click();
   await page.getByRole("dialog", { name: "Service Details" }).getByRole("button", { name: "Continue to location" }).click();
   const location = page.getByRole("dialog", { name: /service the vehicle/i });
   await location.getByRole("button", { name: "Change Address" }).click();
   await location.getByLabel("Service address").fill(fullAddress);
+  await location.getByLabel("Customer-entered Chicago ZIP code").fill("60601");
   await location.getByLabel("Location Notes").fill(privateNote);
-  await expect(location.getByText(/No payment is captured/)).toBeVisible();
-  await location.getByRole("button", { name: "Confirm booking" }).click();
-  await expect(page.getByTestId("booking-confirmation")).toBeVisible();
+  await location.getByLabel("Customer name").fill("Sensitive Test Customer");
+  await location.getByLabel("Email").fill("sensitive-request@example.test");
+  await location.getByLabel(/I consent to ReGo contacting me/).check();
+  await expect(location.getByText(/No payment will be collected/)).toBeVisible();
+  await location.getByRole("button", { name: "Submit service request" }).click();
+  await expect(location).toContainText(/could not save/i);
+  await expect(page.getByTestId("request-confirmation")).toHaveCount(0);
 
   const stored = await page.evaluate(() => localStorage.getItem("rego.bookingDraft.v1"));
   expect(stored).not.toBeNull();
   expect(stored).not.toContain(fullVin);
   expect(stored).not.toContain(fullAddress);
   expect(stored).not.toContain(privateNote);
+  expect(stored).not.toContain("sensitive-request@example.test");
   expect(stored).not.toMatch(/confirmed|payment|message/i);
-
-  await page.reload();
-  await expect(page.getByTestId("booking-confirmation")).toHaveCount(0);
 });
 
 test("Car Tow is a partner-only fail-closed handoff and cannot mutate normal jobs", async ({ page }) => {
@@ -109,7 +106,7 @@ test("Car Tow is a partner-only fail-closed handoff and cannot mutate normal job
   await expect(handoff).toContainText("will not create a normal mechanic booking, provider assignment, or dispatch job");
   await handoff.getByLabel("Market").selectOption("boise");
   await expect(handoff).toContainText("No static partner card for this market; no ReGo booking will be created.");
-  await expect(page.getByTestId("booking-confirmation")).toHaveCount(0);
+  await expect(page.getByTestId("request-confirmation")).toHaveCount(0);
   await handoff.getByRole("button", { name: "Back to ReGo" }).click();
   expect(await demoQueueSnapshot(page, "provider")).toEqual(providerBefore);
   expect(await demoQueueSnapshot(page, "dispatch")).toEqual(dispatchBefore);

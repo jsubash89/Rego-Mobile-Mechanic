@@ -10,7 +10,8 @@ const BOOKING_DRAFT_FIELDS = [
   "appointmentTime",
 ];
 
-const SAFE_VEHICLE_FIELDS = ["year", "make", "model", "trim", "engine", "transmission", "mileage", "vinLast6", "vinLast4"];
+// Vehicle identifiers are request-only PII and never belong in durable browser storage.
+const SAFE_VEHICLE_FIELDS = ["year", "make", "model", "trim", "engine", "transmission", "mileage"];
 
 function getBrowserStorage(storage) {
   if (storage) {
@@ -170,10 +171,10 @@ function hasVehicleDraft(vehicle) {
 
 function normalizeDraftVehicle(draftVehicle, defaultVehicle) {
   if (hasVehicleDraft(draftVehicle)) {
-    return minimizeVehicleIdentity(draftVehicle);
+    return minimizeVehicleIdentity(cleanVehicle(draftVehicle) ?? {});
   }
 
-  return minimizeVehicleIdentity(defaultVehicle ?? {});
+  return minimizeVehicleIdentity(cleanVehicle(defaultVehicle) ?? {});
 }
 
 function valuesDiffer(left, right) {

@@ -1,6 +1,9 @@
 import { defineConfig } from "@playwright/test";
+import { assertSafeTestDatabaseUrl } from "./src/server/test-database-guard.mjs";
 
 const CI = Boolean(process.env.CI);
+const testDatabaseUrl = assertSafeTestDatabaseUrl(process.env.TEST_DATABASE_URL ?? "postgresql:///rego_test");
+process.env.TEST_DATABASE_URL = testDatabaseUrl;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -22,7 +25,12 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3107",
+    command: "npm run db:migrate && npm run dev -- --hostname 127.0.0.1 --port 3107",
+    env: {
+      ...process.env,
+      DATABASE_URL: testDatabaseUrl,
+      NEXT_PUBLIC_SHOW_INTERNAL_DEMOS: "true",
+    },
     url: "http://127.0.0.1:3107",
     reuseExistingServer: false,
     timeout: 120_000,

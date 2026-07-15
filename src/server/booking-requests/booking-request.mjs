@@ -13,7 +13,7 @@ const NESTED_FIELDS = {
   customer: new Set(["name", "email", "phone"]),
   consent: new Set(["accepted", "source"]),
   vehicle: new Set(["year", "make", "model", "vinSuffix"]),
-  location: new Set(["type", "address", "notes"]),
+  location: new Set(["type", "address", "postalCode", "notes"]),
 };
 const LOCATION_TYPES = new Set(["home", "work", "other", "garage", "driveway", "parking_lot", "parking lot"]);
 const PILOT_MARKETS = new Set(["chicago"]);
@@ -86,14 +86,26 @@ function normalizeVehicle(value) {
   const maximumYear = new Date().getUTCFullYear() + 1;
   if (!Number.isInteger(value.year) || value.year < 1886 || value.year > maximumYear) fail("vehicle.year is invalid");
   const vinSuffix = text(value.vinSuffix, "vehicle.vinSuffix", { required: false, max: 6 });
-  if (vinSuffix && !/^[A-HJ-NPR-Z0-9]{4,6}$/i.test(vinSuffix)) fail("vehicle.vinSuffix is invalid");
+  if (vinSuffix && !/^[A-Z0-9]{6}$/i.test(vinSuffix)) fail("vehicle.vinSuffix is invalid", "invalid_vin_suffix");
   return { year: value.year, make: text(value.make, "vehicle.make", { max: 80 }), model: text(value.model, "vehicle.model", { max: 80 }), vinSuffix: vinSuffix?.toUpperCase() ?? null };
 }
 function normalizeLocation(value) {
   allowOnly(value, "location", NESTED_FIELDS.location);
   const type = text(value.type, "location.type", { max: 32 }).toLowerCase();
   if (!LOCATION_TYPES.has(type)) fail("location.type is invalid");
-  return { type: type.replace(" ", "_"), address: text(value.address, "location.address", { max: 300 }), notes: text(value.notes, "location.notes", { required: false, max: 500 }) };
+  const address = text(value.address, "location.address", { max: 300 });
+  if (/[\r\n]/.test(address) || /\bdetroit\b|\bmichigan\b/i.test(address) || !/(?:^|,)\s*chicago\s*,\s*(?:il|illinois)(?:\s+606\d{2}(?:-\d{4})?)?(?:\s*,\s*(?:usa|united states))?\s*$/i.test(address)) {
+    fail("location.address must explicitly identify Chicago, IL", "invalid_address");
+  }
+  const postalCode = typeof value.postalCode === "string" ? value.postalCode.trim() : "";
+  if (!/^606\d{2}$/.test(postalCode) || Number(postalCode) < 60601 || Number(postalCode) > 60661) {
+    fail("location.postalCode is outside the Chicago pilot", "invalid_postal_code");
+  }
+  const addressPostalCodes = address.match(/(?<!\d)\d{5}(?:-\d{4})?(?!\d)/g) ?? [];
+  if (addressPostalCodes.some((token) => token.slice(0, 5) !== postalCode)) {
+    fail("location address ZIP does not match location.postalCode", "invalid_postal_code");
+  }
+  return { type: type.replace(" ", "_"), address, postalCode, notes: text(value.notes, "location.notes", { required: false, max: 500 }) };
 }
 function trustedEstimate(service, oil, fulfillment) {
   const needsQuote = (service.id === "oil-change" && oil?.id === "recommended") || (service.requiresPartsFitment && service.quoteType !== "fixed" && service.id !== "oil-change");

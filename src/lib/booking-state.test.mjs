@@ -124,7 +124,7 @@ test("review and confirmation require service, fulfillment, provider, vehicle, t
   assert.equal(canConfirmBooking({ ...booking, provider: null }), false);
   assert.equal(canConfirmBooking({ ...booking, vehicle: { ...vehicle, vin: "" } }), true);
   assert.equal(canConfirmBooking({ ...booking, vehicle: { year: "2021", make: "Toyota", model: "" } }), false);
-  assert.equal(canConfirmBooking({ ...booking, vehicle: { vin: "2T3P1RFV1MW123456" } }), true);
+  assert.equal(canConfirmBooking({ ...booking, vehicle: { vin: "2T3P1RFV1MW123456" } }), false);
   assert.equal(canConfirmBooking({ ...booking, appointmentTime: "" }), false);
   assert.equal(canConfirmBooking({ ...booking, estimate: null }), false);
 });

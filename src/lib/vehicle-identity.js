@@ -4,77 +4,54 @@ function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== "";
 }
 
-function normalizeVin(value) {
-  return String(value ?? "").trim().toUpperCase();
-}
-
-function getVinLast6(value) {
-  const normalized = normalizeVin(value);
-  return normalized ? normalized.slice(-6) : undefined;
+function normalizeVinLast6(value) {
+  return String(value ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
 }
 
 function minimizeVehicleIdentity(vehicle = {}) {
   const minimized = { ...vehicle };
-
-  if (hasValue(minimized.vin)) {
-    minimized.vinLast6 = getVinLast6(minimized.vin);
-    delete minimized.vin;
-  }
-
+  // Legacy seed/draft protection: discard full VIN rather than deriving or retaining it.
+  delete minimized.vin;
+  if (hasValue(minimized.vinLast6)) minimized.vinLast6 = normalizeVinLast6(minimized.vinLast6);
   return minimized;
 }
 
-function setExplicitVehicleVin(vehicle = {}, vin) {
-  const normalizedVin = normalizeVin(vin);
-
-  if (!normalizedVin) {
-    const nextVehicle = { ...vehicle };
-    delete nextVehicle.vin;
-    delete nextVehicle.vinLast6;
-    return nextVehicle;
-  }
-
-  return {
-    ...vehicle,
-    vin: normalizedVin,
-    vinLast6: getVinLast6(normalizedVin),
-  };
+function setVehicleVinLast6(vehicle = {}, value) {
+  const nextVehicle = { ...vehicle };
+  delete nextVehicle.vin;
+  const vinLast6 = normalizeVinLast6(value);
+  if (vinLast6) nextVehicle.vinLast6 = vinLast6;
+  else delete nextVehicle.vinLast6;
+  return nextVehicle;
 }
 
 function updateVehicleIdentity(vehicle = {}, field, value) {
+  if (field === "vinLast6") return setVehicleVinLast6(vehicle, value);
+  if (field === "vin") return minimizeVehicleIdentity(vehicle);
   const nextVehicle = { ...vehicle, [field]: value };
-
-  if (field === "vin") {
-    return setExplicitVehicleVin(vehicle, value);
-  }
-
+  delete nextVehicle.vin;
   if (VEHICLE_IDENTITY_FIELDS.includes(field) && String(vehicle[field] ?? "") !== String(value ?? "")) {
-    delete nextVehicle.vin;
     delete nextVehicle.vinLast6;
     delete nextVehicle.vinLast4;
   }
-
   return nextVehicle;
 }
 
 function vehicleHasManualIdentity(vehicle = {}) {
   return ["year", "make", "model"].every((field) => hasValue(vehicle[field]));
 }
-
 function vehicleHasVinIdentity(vehicle = {}) {
-  return hasValue(vehicle.vin);
+  return /^[A-Z0-9]{6}$/.test(String(vehicle.vinLast6 ?? ""));
 }
-
 function vehicleIdentityIsComplete(vehicle = {}) {
-  return vehicleHasVinIdentity(vehicle) || vehicleHasManualIdentity(vehicle);
+  return vehicleHasManualIdentity(vehicle);
 }
 
 module.exports = {
   VEHICLE_IDENTITY_FIELDS,
-  getVinLast6,
   minimizeVehicleIdentity,
-  normalizeVin,
-  setExplicitVehicleVin,
+  normalizeVinLast6,
+  setVehicleVinLast6,
   updateVehicleIdentity,
   vehicleHasManualIdentity,
   vehicleHasVinIdentity,

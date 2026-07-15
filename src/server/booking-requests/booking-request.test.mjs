@@ -16,7 +16,7 @@ const validInput = Object.freeze({
   providerPreferenceId: "maria",
   vehicle: { year: 2020, make: "Subaru", model: "Outback", vinSuffix: "H4P220" },
   schedulePreference: "Weekday mornings",
-  location: { type: "driveway", address: "123 Main St, Chicago, IL 60601", notes: "Blue house" },
+  location: { type: "driveway", address: "123 Main St, Chicago, IL", postalCode: "60601", notes: "Blue house" },
 });
 
 function clone(value) {
@@ -33,6 +33,45 @@ test("validates and normalizes a public booking request using canonical IDs", ()
   assert.equal(result.vehicle.vinSuffix, "H4P220");
   assert.equal(result.estimateSnapshot.source, "server_catalog");
   assert.equal(result.estimateSnapshot.total, 102);
+});
+
+test("rejects non-Chicago and out-of-range ZIPs regardless of address text", () => {
+  for (const postalCode of [undefined, "60600", "60662", "60699", "48201", "Chicago"]) {
+    const input = clone(validInput);
+    input.location.postalCode = postalCode;
+    input.location.address = "123 Main St, Chicago, IL";
+    assert.throws(() => validateBookingRequestInput(input), (error) => error?.code === "invalid_postal_code");
+  }
+});
+
+test("requires explicit customer-entered Chicago, IL address text and rejects market bypass strings", () => {
+  for (const address of [
+    "123 Main St", "Chicago Chicago Chicago", "1 Woodward Ave, Detroit, MI 60601",
+    "1 Woodward Ave, Detroit, MI, Chicago", "1 Woodward Ave, Detroit, MI, Chicago, IL", "1 Woodward Ave, Detroit, MI, Chicago, IL, Detroit, MI",
+    "1 Main St, Chicago, IN", "1 Main St, Chicago, IL\nDetroit, MI", "Chicago, IL is mentioned here",
+  ]) {
+    const input = clone(validInput);
+    input.location.address = address;
+    assert.throws(() => validateBookingRequestInput(input), (error) => error?.code === "invalid_address", address);
+  }
+  for (const address of ["100 W Randolph St, Chicago, IL", "100 W Randolph St, Chicago, Illinois 60601", "Chicago, IL"]) {
+    const input = clone(validInput);
+    input.location.address = address;
+    assert.doesNotThrow(() => validateBookingRequestInput(input));
+  }
+});
+
+test("rejects an address ZIP token that differs from the structured postal code", () => {
+  for (const address of ["123 Main St, Chicago, IL 60699", "123 Main St 60601, Chicago, IL 60602-1234"]) {
+    const input = clone(validInput);
+    input.location.address = address;
+    assert.throws(() => validateBookingRequestInput(input), (error) => error?.code === "invalid_postal_code");
+  }
+  for (const address of ["123 Main St, Chicago, IL 60601", "123 Main St, Chicago, IL 60601-1234", "123 Main St, Chicago, IL"]) {
+    const input = clone(validInput);
+    input.location.address = address;
+    assert.doesNotThrow(() => validateBookingRequestInput(input));
+  }
 });
 
 test("fails closed on market, service/fulfillment, provider, and partner-only eligibility", () => {

@@ -11,6 +11,7 @@ import { roadsidePartners, roadsideServiceTypes } from "@/data/roadside-partners
 import { oilOptions, services } from "@/data/services";
 import { initialVehicle } from "@/data/vehicles";
 import bookingState from "@/lib/booking-state";
+import bookingRequestClient from "@/lib/booking-request-client";
 import dispatchOperations from "@/lib/dispatch-operations";
 import localStorageHelpers from "@/lib/local-storage";
 import matching from "@/lib/provider-matching";
@@ -19,14 +20,15 @@ import providerOperations from "@/lib/provider-operations";
 import roadsideHandoff from "@/lib/roadside-handoff";
 import vehicleIdentity from "@/lib/vehicle-identity";
 
-const { getBookingSteps, getConfirmationGuidance, transitionBooking } = bookingState;
+const { getBookingSteps, getConfirmationGuidance } = bookingState;
+const { buildBookingRequestIntent, createInMemoryIntentKey, customerFormErrors, safeBookingRequestError, safeBookingRequestFieldErrors } = bookingRequestClient;
 const { DISPATCH_JOB_STATES, MANUAL_ACTIONS, applyDispatchAction, deriveDispatchQueue, getAssignmentCandidates, getReassignCandidate } = dispatchOperations;
 const { loadBookingDraft, normalizeBookingDraft, saveBookingDraft } = localStorageHelpers;
 const { deriveProviderSelection, getProviderMatchingResults } = matching;
-const { calculateEstimate, formatEstimateAmount, getEstimateStatusCopy } = pricing;
+const { calculateEstimate, formatEstimateAmount } = pricing;
 const { getAllowedProviderJobTransitions, getCompletionReadiness, transitionProviderJob } = providerOperations;
 const { buildRoadsideHandoff, isEmergencyRoadsideIntent } = roadsideHandoff;
-const { minimizeVehicleIdentity, setExplicitVehicleVin, updateVehicleIdentity } = vehicleIdentity;
+const { minimizeVehicleIdentity, updateVehicleIdentity } = vehicleIdentity;
 
 const DEFAULT_BOOKING_DRAFT = {
   selectedServiceId: "oil-change",
@@ -39,14 +41,7 @@ const DEFAULT_BOOKING_DRAFT = {
 
 const DEFAULT_MARKET = "chicago";
 
-const ADD_ONS = [
-  { id: "oil-filter", name: "Oil and Filter Change - Add On", price: 82.62 },
-  { id: "front-wipers", name: "Front Windshield Wipers - Add On", price: 39.99 },
-  { id: "rear-wiper", name: "Rear Windshield Wiper - Add On", price: 24.99 },
-  { id: "cabin-filter", name: "Cabin Air Filter - Add On", price: 49.99 },
-  { id: "engine-filter", name: "Engine Air Filter - Add On", price: 39.99 },
-  { id: "tire-rotation", name: "Tire Rotation - Add On", price: 29.99 },
-];
+const SHOW_INTERNAL_DEMOS = process.env.NEXT_PUBLIC_SHOW_INTERNAL_DEMOS === "true";
 
 const VEHICLE_OPTIONS = {
   year: ["2026", "2025", "2024", "2023", "2022", "2021"],
@@ -65,7 +60,7 @@ function serviceById(id) {
   return services.find((service) => service.id === id) ?? services[0];
 }
 
-function ModalShell({ children, label, onClose, wide = false }) {
+function ModalShell({ children, label, onClose, wide = false, locked = false }) {
   const dialogRef = useRef(null);
   const openerRef = useRef(typeof document === "undefined" ? null : document.activeElement);
 
@@ -86,7 +81,7 @@ function ModalShell({ children, label, onClose, wide = false }) {
       .filter((element) => element.getAttribute("aria-hidden") !== "true");
 
     const handleKeyDown = (event) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !locked) {
         event.preventDefault();
         onClose();
         return;
@@ -119,12 +114,12 @@ function ModalShell({ children, label, onClose, wide = false }) {
       document.body.style.overflow = previousBodyOverflow;
       if (opener?.isConnected) opener.focus();
     };
-  }, [onClose]);
+  }, [locked, onClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 p-2 sm:items-center sm:p-4">
       <div ref={dialogRef} aria-label={label} aria-modal="true" role="dialog" tabIndex={-1} className={`relative max-h-[calc(100dvh-1rem)] w-full overflow-y-auto ${wide ? "max-w-[760px]" : "max-w-[512px]"} rounded bg-white text-black shadow-2xl sm:max-h-[calc(100dvh-2rem)]`}>
-        <button type="button" onClick={onClose} className="absolute right-3 top-3 text-xl leading-none text-slate-700 hover:text-black" aria-label="Close">×</button>
+        <button type="button" disabled={locked} onClick={onClose} className="absolute right-3 top-3 text-xl leading-none text-slate-700 hover:text-black disabled:text-slate-300" aria-label="Close">×</button>
         {children}
       </div>
     </div>
@@ -257,20 +252,26 @@ export default function ReGoCustomerShell() {
   const [selectedOilId, setSelectedOilId] = useState(DEFAULT_BOOKING_DRAFT.selectedOilId);
   const [selectedProviderId, setSelectedProviderId] = useState(DEFAULT_BOOKING_DRAFT.selectedProviderId);
   const [vehicle, setVehicle] = useState(DEFAULT_BOOKING_DRAFT.vehicle);
-  const [vinInput, setVinInput] = useState("");
-  const [address, setAddress] = useState("123 Main St, Anytown, USA");
+  const [address, setAddress] = useState("123 Main St, Chicago, IL");
+  const [postalCode, setPostalCode] = useState("");
   const [locationNotes, setLocationNotes] = useState("");
   const [locationType, setLocationType] = useState("Home");
   const [appointmentTime, setAppointmentTime] = useState(DEFAULT_BOOKING_DRAFT.appointmentTime);
   const [schedulePreference, setSchedulePreference] = useState("");
   const [activeModal, setActiveModal] = useState(null);
   const closeModal = useCallback(() => setActiveModal(null), []);
-  const [vehicleTab, setVehicleTab] = useState("make-model");
-  const [selectedAddOns, setSelectedAddOns] = useState([]);
-  const [bookingConfirmed, setBookingConfirmed] = useState(false);
+
+  const [requestResult, setRequestResult] = useState(null);
+  const [customer, setCustomer] = useState({ name: "", email: "", phone: "" });
+  const [consentAccepted, setConsentAccepted] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
+  const [submitError, setSubmitError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const intentKey = useRef(createInMemoryIntentKey());
   const [addressEditing, setAddressEditing] = useState(false);
   const [draftHydrated, setDraftHydrated] = useState(false);
-  const [draftNotice, setDraftNotice] = useState("Draft saves locally with VIN and address minimized.");
+  const [draftNotice, setDraftNotice] = useState("Draft saves locally without contact, address, or VIN data.");
   const [providerJobs, setProviderJobs] = useState(seededProviderJobs);
   const [dispatchJobs, setDispatchJobs] = useState(seededDispatchJobs);
   const [activeDemo, setActiveDemo] = useState(null);
@@ -295,11 +296,6 @@ export default function ReGoCustomerShell() {
   const effectiveAppointmentTime = providerSelection.appointmentTime;
   const providerMatches = useMemo(() => getProviderMatchingResults(providers, { service: selectedService, fulfillment, market: DEFAULT_MARKET }).matches, [fulfillment, selectedService]);
   const estimate = useMemo(() => calculateEstimate({ service: selectedService, oil: selectedOil, fulfillment }), [fulfillment, selectedOil, selectedService]);
-  const estimateCopy = getEstimateStatusCopy(estimate, { service: selectedService, provider: selectedProvider });
-  const addOnTotal = selectedAddOns.reduce((sum, addOnId) => sum + (ADD_ONS.find((addOn) => addOn.id === addOnId)?.price ?? 0), 0);
-  const subtotal = estimate.total + addOnTotal;
-  const tax = Math.round(subtotal * 0.03 * 100) / 100;
-  const total = subtotal + tax;
   const roadsideIntent = roadsideServiceTypes.find((intent) => intent.id === "tow") ?? roadsideServiceTypes[0];
   const roadsideHandoffResult = useMemo(() => buildRoadsideHandoff({
     market: roadsideMarket,
@@ -315,11 +311,28 @@ export default function ReGoCustomerShell() {
     vehicle,
     appointmentTime: effectiveAppointmentTime,
     estimate,
-    confirmed: bookingConfirmed,
-  }), [bookingConfirmed, effectiveAppointmentTime, estimate, fulfillment, selectedOil, selectedProvider, selectedService, vehicle]);
+    confirmed: Boolean(requestResult),
+  }), [effectiveAppointmentTime, estimate, fulfillment, requestResult, selectedOil, selectedProvider, selectedService, vehicle]);
   const steps = getBookingSteps(bookingDraft);
   const confirmationGuidance = getConfirmationGuidance(bookingDraft);
   const isOilService = selectedService.id === "oil-change";
+  const currentIntent = useMemo(() => buildBookingRequestIntent({
+    customer, consentAccepted, serviceId: selectedService.id, fulfillmentId: fulfillment.id,
+    oilOptionId: selectedOil?.id, vehicle, schedulePreference: schedulePreference || effectiveAppointmentTime,
+    location: { type: locationType, address, postalCode, notes: locationNotes },
+  }), [address, consentAccepted, customer, effectiveAppointmentTime, fulfillment.id, locationNotes, locationType, postalCode, schedulePreference, selectedOil?.id, selectedService.id, vehicle]);
+  const intentFingerprint = JSON.stringify(currentIntent);
+  const previousIntentFingerprint = useRef(intentFingerprint);
+  const latestIntentFingerprint = useRef(intentFingerprint);
+  useEffect(() => {
+    latestIntentFingerprint.current = intentFingerprint;
+    if (previousIntentFingerprint.current !== intentFingerprint) {
+      intentKey.current.invalidate();
+      setRequestResult(null);
+      setSubmitError("");
+      previousIntentFingerprint.current = intentFingerprint;
+    }
+  }, [intentFingerprint]);
 
   useEffect(() => {
     const persistedDraft = loadBookingDraft();
@@ -355,7 +368,7 @@ export default function ReGoCustomerShell() {
 
   function chooseHeroService(heroService) {
     setSelectedHeroServiceId(heroService.id);
-    setBookingConfirmed(false);
+    setRequestResult(null);
     if (heroService.id === "tow") {
       setActiveModal("roadside");
       return;
@@ -374,14 +387,11 @@ export default function ReGoCustomerShell() {
   }
 
   function updateVehicle(field, value) {
-    setBookingConfirmed(false);
+    setRequestResult(null);
     setVehicle((current) => updateVehicleIdentity(current, field, value));
   }
 
   function continueFromVehicle() {
-    if (vehicleTab === "vin" && vinInput.trim()) {
-      setVehicle((current) => setExplicitVehicleVin(current, vinInput));
-    }
     setActiveModal("schedule");
   }
 
@@ -393,19 +403,62 @@ export default function ReGoCustomerShell() {
     setActiveModal("details");
   }
 
-  function toggleAddOn(addOnId) {
-    setSelectedAddOns((current) => current.includes(addOnId) ? current.filter((id) => id !== addOnId) : [...current, addOnId]);
-  }
 
   function continueToLocation() {
     setActiveModal("location");
   }
 
-  function finishLocation() {
-    const nextBooking = transitionBooking(bookingDraft, "confirm");
-    setBookingConfirmed(nextBooking.confirmed === true);
-    if (nextBooking.confirmed === true) {
+  async function finishLocation() {
+    if (submittingRef.current) return;
+    const formState = {
+      customer,
+      consentAccepted,
+      serviceId: selectedService.id,
+      fulfillmentId: fulfillment.id,
+      oilOptionId: selectedOil?.id,
+      vehicle,
+      schedulePreference: schedulePreference || effectiveAppointmentTime,
+      location: { type: locationType, address, postalCode, notes: locationNotes },
+      available: providerMatches.length > 0,
+    };
+    const errors = customerFormErrors(formState);
+    if (!confirmationGuidance.ready && !errors.availability) errors.availability = confirmationGuidance.message;
+    setFormErrors(errors);
+    setSubmitError("");
+    if (Object.keys(errors).length) return;
+
+    const intent = buildBookingRequestIntent(formState);
+    const submittedFingerprint = JSON.stringify(intent);
+    const idempotencyKey = intentKey.current.forIntent(intent);
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      const response = await fetch("/api/booking-requests", {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": idempotencyKey },
+        body: JSON.stringify(intent),
+      });
+      if (!response.ok) {
+        if (response.status === 400) {
+          const body = await response.json().catch(() => ({}));
+          setFormErrors((current) => ({ ...current, ...safeBookingRequestFieldErrors(body?.code) }));
+        }
+        setSubmitError(safeBookingRequestError(response.status));
+        return;
+      }
+      const result = await response.json();
+      if (response.status !== 201 || !/^BR_[A-Z0-9]{10}$/.test(result?.publicReference) || result?.status !== "pending_review") {
+        setSubmitError(safeBookingRequestError(503));
+        return;
+      }
+      if (latestIntentFingerprint.current !== submittedFingerprint) return;
+      setRequestResult({ ...result, intentFingerprint: submittedFingerprint });
       setActiveModal(null);
+    } catch {
+      setSubmitError(safeBookingRequestError(null));
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   }
 
@@ -493,8 +546,12 @@ export default function ReGoCustomerShell() {
             <input aria-label="Service address" value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Where will we service your vehicle?" className="w-full bg-transparent text-[13px] text-slate-700 outline-none placeholder:text-[#9ca3af]" />
           </div>
           <button type="button" onClick={startScheduling} className="mt-4 h-[40px] w-full rounded-lg bg-black text-[13px] font-black text-white shadow-lg transition hover:bg-slate-800">Schedule Now</button>
-          {bookingConfirmed && (
-            <p data-testid="booking-confirmation" className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center text-[12px] font-black text-emerald-800">Mock booking confirmed for {effectiveAppointmentTime} with {selectedProvider?.name ?? "your provider"}. This confirmation is in memory only and will not be restored after reload.</p>
+          {requestResult?.intentFingerprint === intentFingerprint && (
+            <div data-testid="request-confirmation" role="status" className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-left text-[12px] text-emerald-950">
+              <p className="font-black">Request received</p>
+              <p className="mt-1">Reference: <strong data-testid="public-reference">{requestResult.publicReference}</strong> · <strong>pending review</strong></p>
+              <p className="mt-1">Coverage verification is pending. ReGo will review your customer-entered address and ZIP with pilot supply. Your requested time is not confirmed and no provider is assigned. No payment was collected. Estimate guidance is nonbinding.</p>
+            </div>
           )}
           <p className="mt-3 text-center text-[11px] font-semibold text-slate-500">{draftNotice}</p>
         </div>
@@ -526,7 +583,7 @@ export default function ReGoCustomerShell() {
         </div>
       </section>
 
-      <div id="demo-access">
+      {SHOW_INTERNAL_DEMOS && <div id="demo-access">
         <DemoAccess
           activeDemo={activeDemo}
           setActiveDemo={setActiveDemo}
@@ -541,30 +598,25 @@ export default function ReGoCustomerShell() {
           providerDemoNotice={providerDemoNotice}
           dispatchDemoNotice={dispatchDemoNotice}
         />
-      </div>
+      </div>}
       </main>
 
       {activeModal === "vehicle" && (
         <ModalShell label="Vehicle information" onClose={closeModal}>
           <div className="p-4">
             <h2 className="text-[18px] font-black">Let&apos;s get some information about your vehicle</h2>
-            <p className="mt-2 text-[12px] text-slate-600">Enter your vehicle&apos;s make and model or VIN number</p>
-            <div className="mt-4 flex gap-1">
-              <button type="button" onClick={() => setVehicleTab("make-model")} className={`rounded-sm px-3 py-2 text-[12px] ${vehicleTab === "make-model" ? "bg-[#e5e7eb]" : "bg-[#f4f5f7]"}`}>Make &amp; Model</button>
-              <button type="button" onClick={() => setVehicleTab("vin")} className={`rounded-sm px-3 py-2 text-[12px] ${vehicleTab === "vin" ? "bg-[#e5e7eb]" : "bg-[#f4f5f7]"}`}>VIN</button>
+            <p className="mt-2 text-[12px] text-slate-600">Enter make and model. Optionally add only the last six VIN characters; never enter a full VIN.</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <SelectField label="Year" value={vehicle.year} options={VEHICLE_OPTIONS.year} onChange={(value) => updateVehicle("year", value)} />
+              <SelectField label="Make" value={vehicle.make} options={VEHICLE_OPTIONS.make} onChange={(value) => updateVehicle("make", value)} />
+              <SelectField label="Model" value={vehicle.model} options={VEHICLE_OPTIONS.model} onChange={(value) => updateVehicle("model", value)} />
+              <SelectField label="Trim" value={vehicle.trim} options={VEHICLE_OPTIONS.trim} onChange={(value) => updateVehicle("trim", value)} />
+              <SelectField label="Engine" value={vehicle.engine} options={VEHICLE_OPTIONS.engine} onChange={(value) => updateVehicle("engine", value)} />
+              <SelectField label="Transmission" value={vehicle.transmission} options={VEHICLE_OPTIONS.transmission} onChange={(value) => updateVehicle("transmission", value)} />
+              <label className="block text-[12px]">VIN last 6 (optional)
+                <input aria-label="VIN last 6" maxLength={6} pattern="[A-Za-z0-9]{6}" value={vehicle.vinLast6 ?? ""} onChange={(event) => updateVehicle("vinLast6", event.target.value)} placeholder="ABC123" className="mt-1 h-[36px] w-full rounded-sm border border-[#d9dee8] px-3 text-[12px] uppercase outline-none focus:border-black" />
+              </label>
             </div>
-            {vehicleTab === "make-model" ? (
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <SelectField label="Year" value={vehicle.year} options={VEHICLE_OPTIONS.year} onChange={(value) => updateVehicle("year", value)} />
-                <SelectField label="Make" value={vehicle.make} options={VEHICLE_OPTIONS.make} onChange={(value) => updateVehicle("make", value)} />
-                <SelectField label="Model" value={vehicle.model} options={VEHICLE_OPTIONS.model} onChange={(value) => updateVehicle("model", value)} />
-                <SelectField label="Trim" value={vehicle.trim} options={VEHICLE_OPTIONS.trim} onChange={(value) => updateVehicle("trim", value)} />
-                <SelectField label="Engine" value={vehicle.engine} options={VEHICLE_OPTIONS.engine} onChange={(value) => updateVehicle("engine", value)} />
-                <SelectField label="Transmission" value={vehicle.transmission} options={VEHICLE_OPTIONS.transmission} onChange={(value) => updateVehicle("transmission", value)} />
-              </div>
-            ) : (
-              <input aria-label="Vehicle VIN" value={vinInput} onChange={(event) => setVinInput(event.target.value)} placeholder="Enter VIN" className="mt-3 h-[36px] w-full rounded-sm border border-[#d9dee8] px-3 text-[12px] outline-none focus:border-black" />
-            )}
             <div className="mt-4 flex justify-between">
               <button type="button" onClick={() => setActiveModal(null)} className="rounded bg-[#e5e7eb] px-4 py-2 text-[12px] font-bold">Back</button>
               <button type="button" onClick={continueFromVehicle} className="rounded bg-black px-5 py-2 text-[12px] font-bold text-white">Next</button>
@@ -631,25 +683,10 @@ export default function ReGoCustomerShell() {
               </section>
               <div className="space-y-4">
                 <section className="rounded bg-white p-4 shadow-sm">
-                  <h3 className="text-[16px] font-black">Add-ons</h3>
-                  <div className="mt-4 space-y-2">
-                    {ADD_ONS.map((addOn) => (
-                      <button key={addOn.id} type="button" aria-pressed={selectedAddOns.includes(addOn.id)} onClick={() => toggleAddOn(addOn.id)} className={`flex w-full items-center justify-between rounded border px-2 py-2 text-left text-[11px] ${selectedAddOns.includes(addOn.id) ? "border-black bg-slate-50" : "border-[#d9dee8] bg-white"}`}>
-                        <span><span className="mr-1 inline-flex h-3 w-3 items-center justify-center rounded-full bg-slate-400 text-[9px] text-white">+</span>{addOn.name}</span>
-                        <span className="text-blue-700">{money(addOn.price)}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="mt-4 border-t border-slate-200 pt-3 text-[11px]">
-                    <p className="font-black">Selected Add-ons</p>
-                    <p className="mt-2 text-slate-500">{selectedAddOns.length ? selectedAddOns.map((id) => ADD_ONS.find((addOn) => addOn.id === id)?.name).filter(Boolean).join(", ") : "No add-ons selected"}</p>
-                    <div className="mt-3 flex justify-between font-black"><span>Add-on Total:</span><span>{money(addOnTotal)}</span></div>
-                  </div>
-                </section>
-                <section className="rounded bg-white p-4 shadow-sm">
-                  <div className="space-y-3 text-[12px]"><div className="flex justify-between"><span>Subtotal</span><span>{money(subtotal)}</span></div><div className="flex justify-between"><span>Tax</span><span>{money(tax)}</span></div><div className="flex justify-between text-[14px] font-black"><span>Total</span><span>{money(total)}</span></div></div>
-                  <p className="mt-3 rounded bg-slate-50 p-2 text-[10px] font-semibold text-slate-600">{estimateCopy.summary}</p>
-                  <button type="button" onClick={continueToLocation} className="mt-3 h-[29px] w-full rounded bg-black text-[12px] font-black text-white">Continue to location</button>
+                  <h3 className="text-[16px] font-black">Nonbinding estimate guidance</h3>
+                  <div className="mt-4 flex justify-between text-[14px] font-black"><span>Trusted-compatible base estimate</span><span>{formatEstimateAmount(estimate.total, { tbd: estimate.quoteRequired, formatter: money })}</span></div>
+                  <p className="mt-3 rounded bg-slate-50 p-3 text-[11px] leading-5 text-slate-700">This base guidance uses the current ReGo service catalog. It is not a quote or total, excludes unrequested extras, and may change after vehicle fitment and supply review. ReGo will contact you; no demo provider preference or add-on is submitted.</p>
+                  <button type="button" onClick={continueToLocation} className="mt-3 h-[34px] w-full rounded bg-black text-[12px] font-black text-white">Continue to location</button>
                 </section>
               </div>
             </div>
@@ -658,26 +695,57 @@ export default function ReGoCustomerShell() {
       )}
 
       {activeModal === "location" && (
-        <ModalShell label="Where will we service the vehicle?" onClose={closeModal}>
+        <ModalShell label="Where will we service the vehicle?" onClose={closeModal} locked={submitting}>
           <div className="p-4">
             <h2 className="text-[16px] font-black">Where will we service the vehicle?</h2>
+            <p className="mt-2 rounded bg-blue-50 p-2 text-[11px] font-semibold text-blue-950">Customer-entered Chicago, IL address and pilot ZIP required. We do not geocode or authoritatively validate boundaries here. Submitting requests operator coverage verification; it does not confirm coverage, an appointment, or a provider.</p>
             <div className="mt-4 flex h-[32px] items-center justify-between rounded border border-[#d9dee8] px-2 text-[12px]">
-              <input aria-label="Service address" ref={addressInputRef} value={address} readOnly={!addressEditing} onChange={(event) => setAddress(event.target.value)} className={`w-full outline-none ${addressEditing ? "bg-white" : "bg-transparent"}`} />
-              <button type="button" onClick={toggleAddressEditing} className="shrink-0 text-[11px] text-blue-700">{addressEditing ? "Done" : "Change Address"}</button>
+              <input aria-label="Service address" maxLength={300} disabled={submitting} aria-invalid={Boolean(formErrors.address)} aria-describedby={formErrors.address ? "address-error" : undefined} ref={addressInputRef} value={address} readOnly={!addressEditing} onChange={(event) => { setAddress(event.target.value); setFormErrors((errors) => ({ ...errors, address: undefined })); }} className={`w-full outline-none ${addressEditing ? "bg-white" : "bg-transparent"}`} />
+              <button type="button" disabled={submitting} onClick={toggleAddressEditing} className="shrink-0 text-[11px] text-blue-700 disabled:text-slate-300">{addressEditing ? "Done" : "Change Address"}</button>
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 text-[12px] sm:grid-cols-3">
+            {formErrors.address && <p id="address-error" role="alert" className="mt-1 text-[11px] font-bold text-red-700">{formErrors.address}</p>}
+            <label className="mt-4 block text-[12px] font-bold">Customer-entered Chicago ZIP code <span aria-hidden="true">*</span>
+              <input required inputMode="numeric" autoComplete="postal-code" maxLength={5} pattern="606[0-9]{2}" disabled={submitting} aria-invalid={Boolean(formErrors.postalCode)} aria-describedby={formErrors.postalCode ? "postal-code-error" : "postal-code-help"} value={postalCode} onChange={(event) => { setPostalCode(event.target.value.replace(/\D/g, "").slice(0, 5)); setFormErrors((errors) => ({ ...errors, postalCode: undefined })); }} className="mt-1 h-10 w-full rounded border border-[#d9dee8] px-3 text-[16px] sm:text-[12px]" />
+            </label>
+            <p id="postal-code-help" className="mt-1 text-[11px] text-slate-500">Pilot ZIP range: 60601–60661.</p>
+            {formErrors.postalCode && <p id="postal-code-error" role="alert" className="mt-1 text-[11px] font-bold text-red-700">{formErrors.postalCode}</p>}
+            <fieldset disabled={submitting} className="mt-4 grid grid-cols-2 gap-2 text-[12px] sm:grid-cols-3">
+              <legend className="col-span-full mb-2 text-[12px] font-bold">Location type</legend>
               {LOCATION_TYPES.map((type) => (
                 <label key={type} className={`inline-flex h-9 items-center gap-2 rounded border px-3 font-semibold ${locationType === type ? "border-black bg-slate-50" : "border-[#d9dee8] bg-white"}`}><input type="radio" checked={locationType === type} onChange={() => setLocationType(type)} />{type}</label>
               ))}
-            </div>
+            </fieldset>
             <label className="mt-4 block text-[12px]">Location Notes
-              <textarea value={locationNotes} maxLength={1000} onChange={(event) => setLocationNotes(event.target.value)} placeholder="Let us know details of how to find your car." className="mt-2 h-[78px] w-full rounded border border-[#d9dee8] p-3 text-[12px] outline-none focus:border-black" />
+              <textarea disabled={submitting} value={locationNotes} maxLength={500} onChange={(event) => { setLocationNotes(event.target.value); setFormErrors((errors) => ({ ...errors, notes: undefined })); }} placeholder="Let us know details of how to find your car." className="mt-2 h-[78px] w-full rounded border border-[#d9dee8] p-3 text-[12px] outline-none focus:border-black" />
             </label>
-            <p className="mt-2 text-[11px] text-slate-500">1000 character maximum · {1000 - locationNotes.length} characters left</p>
-            <p className="mt-3 rounded bg-slate-50 p-2 text-[11px] font-semibold text-slate-700">No payment is captured in this MVP. Provider confirmation and any future payment authorization remain deferred.</p>
-            <div className="mt-4 flex justify-between"><button type="button" onClick={() => setActiveModal("details")} className="rounded bg-[#e5e7eb] px-4 py-2 text-[12px] font-bold">Back</button><button type="button" onClick={finishLocation} className="rounded bg-black px-5 py-2 text-[12px] font-bold text-white">Confirm booking</button></div>
-            {bookingConfirmed && <p className="mt-3 rounded bg-emerald-50 p-2 text-[12px] font-bold text-emerald-800">Booking ready. Confirmation is in memory only and is not persisted.</p>}
-            {!confirmationGuidance.ready && <p className="mt-3 rounded bg-amber-50 p-2 text-[12px] font-bold text-amber-800">{confirmationGuidance.message}</p>}
+            <p className="mt-2 text-[11px] text-slate-500">500 character maximum · {500 - locationNotes.length} characters left</p>
+            <fieldset className="mt-4 space-y-3" disabled={submitting}>
+              <legend className="text-[13px] font-black">How should ReGo contact you?</legend>
+              <label className="block text-[12px] font-bold">Customer name <span aria-hidden="true">*</span>
+                <input required maxLength={100} autoComplete="name" aria-invalid={Boolean(formErrors.name)} aria-describedby={formErrors.name ? "name-error" : undefined} value={customer.name} onChange={(event) => { setCustomer((current) => ({ ...current, name: event.target.value })); setFormErrors((errors) => ({ ...errors, name: undefined })); }} className="mt-1 h-10 w-full rounded border border-[#d9dee8] px-3 text-[16px] sm:text-[12px]" />
+              </label>
+              {formErrors.name && <p id="name-error" role="alert" className="text-[11px] font-bold text-red-700">{formErrors.name}</p>}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-[12px] font-bold">Email
+                  <input type="email" inputMode="email" autoComplete="email" maxLength={254} aria-invalid={Boolean(formErrors.contact)} aria-describedby="contact-help contact-error" value={customer.email} onChange={(event) => { setCustomer((current) => ({ ...current, email: event.target.value })); setFormErrors((errors) => ({ ...errors, contact: undefined })); }} className="mt-1 h-10 w-full rounded border border-[#d9dee8] px-3 text-[16px] sm:text-[12px]" />
+                </label>
+                <label className="block text-[12px] font-bold">Phone
+                  <input type="tel" inputMode="tel" autoComplete="tel" maxLength={32} aria-invalid={Boolean(formErrors.contact)} aria-describedby="contact-help contact-error" value={customer.phone} onChange={(event) => { setCustomer((current) => ({ ...current, phone: event.target.value })); setFormErrors((errors) => ({ ...errors, contact: undefined })); }} className="mt-1 h-10 w-full rounded border border-[#d9dee8] px-3 text-[16px] sm:text-[12px]" />
+                </label>
+              </div>
+              <p id="contact-help" className="text-[11px] text-slate-500">Enter at least one: email or phone.</p>
+              {formErrors.contact && <p id="contact-error" role="alert" className="text-[11px] font-bold text-red-700">{formErrors.contact}</p>}
+              <label className="flex items-start gap-2 rounded border border-slate-200 p-3 text-[12px] leading-5">
+                <input type="checkbox" aria-invalid={Boolean(formErrors.consent)} aria-describedby={formErrors.consent ? "consent-error" : "consent-help"} checked={consentAccepted} onChange={(event) => { setConsentAccepted(event.target.checked); setFormErrors((errors) => ({ ...errors, consent: undefined })); }} className="mt-1 h-4 w-4 shrink-0" />
+                <span>I consent to ReGo contacting me about this service request and understand this is not a confirmed booking. <span aria-hidden="true">*</span></span>
+              </label>
+              <p id="consent-help" className="sr-only">Required consent for contact about this unconfirmed request.</p>
+              {formErrors.consent && <p id="consent-error" role="alert" className="text-[11px] font-bold text-red-700">{formErrors.consent}</p>}
+            </fieldset>
+            <p className="mt-3 rounded bg-slate-50 p-2 text-[11px] font-semibold text-slate-700">No payment will be collected with this request. The estimate is nonbinding and may require provider confirmation.</p>
+            {(providerMatches.length === 0 || formErrors.availability || !confirmationGuidance.ready) && <p role="alert" className="mt-3 rounded bg-amber-50 p-2 text-[12px] font-bold text-amber-800">{providerMatches.length === 0 ? "This service and fulfillment combination is not currently available in the Chicago pilot. Choose another service option." : (formErrors.availability ?? confirmationGuidance.message)}</p>}
+            {submitError && <p role="alert" className="mt-3 rounded bg-red-50 p-2 text-[12px] font-bold text-red-800">{submitError}</p>}
+            <div className="mt-4 flex items-center justify-between gap-3"><button type="button" disabled={submitting} onClick={() => setActiveModal("details")} className="rounded bg-[#e5e7eb] px-4 py-3 text-[12px] font-bold disabled:opacity-50">Back</button><button type="button" disabled={submitting || providerMatches.length === 0} onClick={finishLocation} className="min-h-11 rounded bg-black px-5 py-3 text-[12px] font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-400">{submitting ? "Submitting request…" : "Submit service request"}</button></div>
           </div>
         </ModalShell>
       )}
