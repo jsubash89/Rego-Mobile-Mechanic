@@ -6,6 +6,7 @@ Working prototype for a customer-facing mobile mechanic booking marketplace.
 
 ```bash
 npm install
+npm run db:migrate
 npm run dev
 ```
 
@@ -20,6 +21,13 @@ npm run test:e2e
 npm run build
 node scripts/context-snapshot.mjs
 ```
+
+The booking-request API requires PostgreSQL. Copy `.env.example` to a local
+environment file, set the required pooled `DATABASE_URL`, and run
+`npm run db:migrate` before the server. Integration tests deliberately have no
+development-database fallback: create the disposable `rego_test` database and
+run `npm run test:rego`, or export an explicit `TEST_DATABASE_URL` before
+`npm test`. CI provisions PostgreSQL 16 automatically.
 
 The Playwright command starts its own Next.js development server on
 `http://127.0.0.1:3107`, so it does not reuse or interfere with an app already
