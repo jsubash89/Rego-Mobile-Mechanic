@@ -1,8 +1,9 @@
 # ReGo Mobile Mechanic Exhaustive Test Strategy
 
 Status: buildable testing strategy/control plane for current and future unit, component/UI-state, browser E2E, accessibility, visual regression, privacy/security, data contracts, release gates, and app-ready certification.
-Last updated: 2026-07-12
+Last updated: 2026-07-14
 Linear: JS-787 — Docs: exhaustive test strategy
+Implementation milestone: JS-888 — Playwright foundation and current MVP smoke certification
 
 Canonical journey source: `../product/user-journeys.md`.
 
@@ -10,8 +11,8 @@ This document defines how ReGo should be tested as it moves from the current sta
 
 Current implementation note:
 - Local test suite currently uses Node's built-in test runner via `npm test` (`node --test src/**/*.test.mjs`).
-- Required local gates are `git diff --check`, `npm test`, `npm run lint`, and `npm run build`.
-- Browser E2E is desired but not yet implemented: no Playwright/Cypress config or specs are present as of JS-787.
+- Required local gates are `git diff --check`, `npm test`, `npm run lint`, `npm run test:e2e`, and `npm run build`.
+- Playwright Chromium E2E is implemented by JS-888 via `npm run test:e2e`; it starts an isolated local server on port 3107.
 - Payment, messaging/comms, notifications, live auth/RBAC, live provider dispatch, live partner dispatch, production persistence, and production payment/payout/refund behavior remain deferred/stubbed until explicit Linear milestones start them.
 - Tests and CI must mock external behavior until those integrations are intentionally activated.
 
@@ -32,12 +33,11 @@ Current:
 - Node built-in test runner for unit/state-machine/data tests.
 - ESLint via `npm run lint`.
 - Next build via `npm run build`.
-- GitHub Actions CI runs install, lint, build, and test.
+- Playwright Chromium smoke and visual regression coverage runs via `npm run test:e2e`.
+- GitHub Actions CI installs Chromium and runs lint, build, unit tests, and browser E2E.
 
 Recommended next:
-- Playwright for browser E2E/smoke coverage.
 - `@axe-core/playwright` for browser accessibility checks.
-- Playwright screenshot comparisons for create.xyz visual north-star regression checks.
 - React Testing Library/user-event for component-level tests if UI logic becomes too complex for browser-only coverage.
 
 ## Test pyramid and ownership
@@ -46,12 +46,12 @@ Recommended next:
 | --- | --- | --- | --- |
 | Unit/data tests | Pure business rules, pricing, matching, routing, sanitization, state transitions | Implemented for major engines | Add/update with each feature engine |
 | Component/UI-state tests | Stateful UI controls and disabled/enabled action surfaces | Mostly absent; some behavior covered indirectly | Add when flows outgrow pure helper tests |
-| Browser E2E smoke | Verify user-visible click paths in current app shell | Not implemented | Next test implementation milestone after JS-787 |
-| Accessibility checks | Keyboard, labels, focus, axe critical violations | Not implemented | Add with Playwright setup |
-| Visual regression | Guard create.xyz customer UX north-star | Manual/screenshot docs only | Add with Playwright screenshot baseline |
-| Privacy/security negative tests | Role projections, storage minimization, logs, fail-closed data | Strong unit coverage; browser storage checks missing | Add with each privacy/Auth/RBAC/payment/comms milestone |
+| Browser E2E smoke | Verify user-visible click paths in current app shell | Implemented in Chromium for customer, Car Tow, provider, and dispatch MVP paths | Expand with protected routes/live contracts only when those features exist |
+| Accessibility checks | Keyboard, labels, focus, axe critical violations | Not implemented | Add in the accessibility smoke milestone after Playwright setup |
+| Visual regression | Guard create.xyz customer UX north-star | Desktop and mobile Playwright baselines implemented | Update snapshots only for intentional UX changes |
+| Privacy/security negative tests | Role projections, storage minimization, logs, fail-closed data | Strong unit coverage plus browser localStorage checks | Add with each privacy/Auth/RBAC/payment/comms milestone |
 | Data-contract tests | Static data shape, service/provider/partner contracts, future mocked API contracts | Partial | Add before integrating any live backend/API |
-| Release gates | Local and CI verification | Implemented for lint/build/test | Expand when Playwright exists |
+| Release gates | Local and CI verification | Implemented for lint/build/unit/browser tests | Expand with accessibility automation when added |
 | Manual exploratory review | Human localhost walkthroughs against screenshots and journeys | Ad hoc | Formalize at app-ready checkpoints |
 
 ## Unit/data coverage requirements
@@ -125,7 +125,7 @@ Candidate UI-state tests:
 Browser E2E should validate visible click-through behavior, not replace unit/state-machine tests.
 
 Rules:
-- Use Playwright once configured.
+- Use Playwright Chromium through `npm run test:e2e` (isolated port 3107).
 - Keep first suite smoke-level and stable; do not build a brittle full backend fantasy.
 - External systems remain mocked/stubbed.
 - Use stable selectors (`data-testid`) where needed instead of visual text only.
@@ -133,7 +133,7 @@ Rules:
 - Check no customer top navigation exposes provider/admin/dispatch surfaces.
 - Check console has no runtime errors for smoke paths.
 - Add axe critical-violation checks after initial Playwright setup.
-- Add screenshots for the create.xyz-inspired landing/booking shell once visual baseline is agreed.
+- Keep checked-in desktop/mobile baselines stable and update them only after intentional visual review.
 
 Initial Playwright milestone scope:
 
@@ -203,12 +203,12 @@ Initial Playwright milestone scope:
 
 | Journey ID | Priority | Current coverage | Missing coverage | Future browser spec names | Acceptance checkpoints |
 | --- | --- | --- | --- | --- | --- |
-| CJ-001 | P0 | Unit coverage for pricing, matching, booking readiness, localStorage, privacy projections; customer shell implemented/mocked | Browser E2E, payment-auth/capture, messaging, report/invoice/history UI, live auth/backend | `e2e-customer-oil-mobile-checkout-stub`, `e2e-customer-diagnostic-no-oil-step`, `e2e-customer-provider-slot-normalizes-after-service-change`, `e2e-customer-completion-report-history-stub` | no provider/admin nav; required fields gate confirmation; estimate excludes internal economics; no full VIN/address storage; payment/comms labeled stubbed |
-| CJ-002 | P0 | Unit/data coverage for partner-only handoff and no dispatch-like output; Car Tow visual tile present | Browser E2E handoff smoke; future live partner contract tests | `e2e-customer-car-tow-partner-handoff-only`, `e2e-roadside-does-not-create-dispatch-job` | Car Tow remains visible; no normal booking/provider/dispatch job; unsupported market fails closed |
+| CJ-001 | P0 | Unit coverage for pricing, matching, booking readiness, localStorage, and privacy projections; Playwright smoke covers customer shell, oil/non-oil paths, confirmation guards, sensitive draft exclusion, and reload behavior | Payment authorization/capture, messaging, report/invoice/history UI, live auth/backend, and browser selection of fulfillment/provider/slot controls that do not yet exist | `e2e-customer-oil-mobile-checkout-stub`, `e2e-customer-diagnostic-no-oil-step`, `e2e-customer-provider-slot-normalizes-after-service-change`, `e2e-customer-completion-report-history-stub` | no provider/admin nav; required fields gate confirmation; estimate excludes internal economics; no full VIN/address storage; payment/comms labeled stubbed |
+| CJ-002 | P0 | Unit/data coverage plus Playwright smoke for partner-only handoff, unsupported-market fail-closed behavior, and unchanged provider/dispatch queues; Car Tow visual tile present | Future live partner contract tests | `e2e-customer-car-tow-partner-handoff-only`, `e2e-roadside-does-not-create-dispatch-job` | Car Tow remains visible; no normal booking/provider/dispatch job; unsupported market fails closed |
 | CJ-003 | P1 | Docs/state-machine expectations only | cancellation/reschedule/support UI, payment/refund stub tests, browser E2E | `e2e-customer-reschedule-active-booking`, `e2e-customer-cancel-before-provider-enroute`, `e2e-customer-dispute-after-invoice` | no orphaned assigned jobs; refunds require permission/reason; audit redacts PII; dispute/payment/report states separate |
-| PJ-001 | P0/P1 | Provider lifecycle unit coverage; demo ops surface exists | Protected provider route, browser E2E, messaging/report upload/payout integration | `e2e-provider-accept-progress-report-complete`, `e2e-provider-decline-with-reason` | provider sees assigned/offered jobs only; lifecycle order enforced; report gates completion; payout separate from customer payment |
+| PJ-001 | P0/P1 | Provider lifecycle unit coverage plus interim Playwright demo smoke for legal progress, report-gated completion, report-ready completion, and masked summaries | Protected provider route, messaging/report upload UI, and payout integration | `e2e-provider-accept-progress-report-complete`, `e2e-provider-decline-with-reason` | provider sees assigned/offered jobs only; lifecycle order enforced; report gates completion; payout separate from customer payment |
 | PJ-002 | P1 | State-machine/docs coverage for approval-required behavior | Two-sided UI, browser E2E, payment adjustment stub UI | `e2e-provider-change-request-customer-approval-stub`, `e2e-provider-change-request-approved`, `e2e-provider-change-request-declined` | request only from legal active states; customer sees old/new total/reason; decline path not dead-end; payment remains stubbed |
-| AJ-001 | P0/P1 | Dispatch assignment/reassignment queue unit coverage; demo ops surface exists | Protected admin route, browser E2E, full audit UI | `e2e-admin-demo-assignment-escalation-guard`, `e2e-admin-assign-unassigned-job`, `e2e-admin-reassign-at-risk-job`, `e2e-admin-resolve-blocker-and-audit-closeout` | assignment uses matching candidates; manual actions audited; queue data masked; terminal/unknown/no-op/roadside assignment fails closed |
+| AJ-001 | P0/P1 | Dispatch assignment/reassignment queue unit coverage plus interim Playwright demo smoke for assignment guards, blocker recovery, masked summaries, and no roadside assignability | Protected admin route and full browser-visible audit UI | `e2e-admin-demo-assignment-escalation-guard`, `e2e-admin-assign-unassigned-job`, `e2e-admin-reassign-at-risk-job`, `e2e-admin-resolve-blocker-and-audit-closeout` | assignment uses matching candidates; manual actions audited; queue data masked; terminal/unknown/no-op/roadside assignment fails closed |
 | AJ-002 | P1/P2 | RBAC/privacy/payment docs and readiness tests; no support/payment UI | support ticket UI, refund/dispute E2E, live payment/refund contract tests | `e2e-support-open-ticket-from-booking`, `e2e-admin-refund-with-reason-stub` | refund requires permission/reason; support least-privilege projection; payment/report/dispute states separate |
 | SJ-001 | P2 | Conceptual fulfillment support only | shop/dealership route, capacity model, role projection, browser E2E | `e2e-shop-accept-service-lane-booking`, `e2e-shop-decline-with-reason` | shop capacity controls bookability; partner-scoped jobs only; warranty/OEM notes are not live-data claims before integration |
 
@@ -273,7 +273,7 @@ Create.xyz/Uber-inspired customer UX should be protected by visual/manual gates:
 - provider/admin/dispatch controls do not become top-level customer navigation
 - Schedule Now and service-location modal remain direct and trustworthy
 - mobile viewport smoke should be included once Playwright exists
-- screenshot baselines should be updated only with intentional UX decisions
+- screenshot baselines should be updated only with intentional UX decisions and reviewed against the north-star references in `Screenshots/`
 
 ## Manual localhost review protocol
 
@@ -299,13 +299,13 @@ PR gate:
 - Feature docs updated for touched behavior.
 - Journey IDs and acceptance criteria updated when behavior changes.
 - New/changed business rules have unit tests.
-- If a flow has browser coverage, relevant Playwright spec passes in Chromium.
+- `npm run test:e2e` passes in Chromium, including desktop/mobile visual baselines.
 - No new critical accessibility issue on touched flow once a11y tooling exists.
 
 Main/staging gate:
 - PR gate passes.
 - GitHub Actions CI green.
-- Browser smoke suite passes once Playwright exists.
+- Browser smoke and visual suite passes in GitHub Actions.
 - No P0/P1 defects open for touched journeys.
 - No runtime console errors in smoke flow.
 - Visual review completed for create.xyz customer shell changes.
@@ -347,11 +347,9 @@ Each feature doc must include:
 
 ## Recommended next test milestones
 
-1. Playwright foundation and current MVP smoke tests.
-   - Install/configure Playwright.
-   - Add stable selectors only where needed.
-   - Implement CJ-001, CJ-002, provider demo, admin demo, and visual north-star smoke tests.
-   - Add CI command, likely `npm run test:e2e`, but keep it optional until browsers are installed in CI.
+1. Playwright foundation and current MVP smoke tests. Completed by JS-888.
+   - Chromium config, stable selectors, CJ-001/CJ-002/provider/dispatch smoke, privacy checks, and desktop/mobile visual baselines are present.
+   - CI installs Chromium and runs `npm run test:e2e`; failure reports are retained as artifacts.
 
 2. Accessibility smoke gate.
    - Add `@axe-core/playwright`.
@@ -378,9 +376,8 @@ While integrations are deferred:
 
 ## Open testing gaps to track
 
-- Browser E2E framework and specs are not installed yet.
+- Protected role-specific routes and live integration E2E remain deferred; current provider/dispatch coverage intentionally uses the internal demo surface.
 - Accessibility automation is not installed yet.
-- Visual regression baselines are not configured yet.
 - True role-specific customer/provider/admin/support routes are not implemented yet.
 - Payment, messaging, notifications, live auth/RBAC, live dispatch, and production persistence are not implemented yet.
 - Service report, invoice, service history, support ticket, dispute/refund, and payout closeout UI are only partly represented or deferred.

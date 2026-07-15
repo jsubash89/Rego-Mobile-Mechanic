@@ -12,7 +12,7 @@ Implemented fidelity points:
 - Vehicle modal keeps the create.xyz title and Make & Model / VIN tabs with year, make, model, trim, engine, and transmission fields.
 - Scheduling modal uses the three screenshot labels: Specific Date and Time, Flexible Days and Time, Earliest Available.
 - Location modal keeps Change Address, Home/Work/Other/Garage/Driveway/Parking Lot choices, Location Notes, and a 1000-character hint.
-- Service Details modal keeps a black header, vehicle/service summary, Change Service affordance, price breakdown, add-ons, selected add-ons, totals, and black Proceed to Checkout.
+- Service Details modal keeps a black header, vehicle/service summary, Change Service affordance, price breakdown, add-ons, selected add-ons, totals, and a black Continue to location action.
 
 ## Preserved product boundaries
 - Provider and dispatch demos remain off the top-level customer nav behind internal demo access.

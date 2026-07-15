@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fulfillmentOptions } from "@/data/fulfillment";
 import { CREATE_XYZ_HERO_ASSET, CUSTOMER_NAV_ITEMS, HERO_SERVICES, LOCATION_TYPES, SCHEDULE_OPTIONS } from "@/data/createxyz-ux";
@@ -65,10 +65,65 @@ function serviceById(id) {
   return services.find((service) => service.id === id) ?? services[0];
 }
 
-function ModalShell({ children, onClose, wide = false }) {
+function ModalShell({ children, label, onClose, wide = false }) {
+  const dialogRef = useRef(null);
+  const openerRef = useRef(typeof document === "undefined" ? null : document.activeElement);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const opener = openerRef.current;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusableSelector = [
+      "a[href]",
+      "button:not([disabled])",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(",");
+    const focusableElements = () => [...dialog.querySelectorAll(focusableSelector)]
+      .filter((element) => element.getAttribute("aria-hidden") !== "true");
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const elements = focusableElements();
+      if (elements.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    dialog.addEventListener("keydown", handleKeyDown);
+    (focusableElements()[0] ?? dialog).focus();
+
+    return () => {
+      dialog.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousBodyOverflow;
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-2 sm:p-4">
-      <div className={`relative w-full ${wide ? "max-w-[760px]" : "max-w-[512px]"} rounded bg-white text-black shadow-2xl`}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 p-2 sm:items-center sm:p-4">
+      <div ref={dialogRef} aria-label={label} aria-modal="true" role="dialog" tabIndex={-1} className={`relative max-h-[calc(100dvh-1rem)] w-full overflow-y-auto ${wide ? "max-w-[760px]" : "max-w-[512px]"} rounded bg-white text-black shadow-2xl sm:max-h-[calc(100dvh-2rem)]`}>
         <button type="button" onClick={onClose} className="absolute right-3 top-3 text-xl leading-none text-slate-700 hover:text-black" aria-label="Close">×</button>
         {children}
       </div>
@@ -128,18 +183,18 @@ function DemoAccess({
           <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1.5fr]">
             <div className="space-y-2">
               {providerJobs.map((job) => (
-                <button key={job.id} type="button" onClick={() => setActiveProviderJobId(job.id)} className={`w-full rounded-xl border p-3 text-left text-sm ${activeProviderJob?.id === job.id ? "border-black bg-slate-50" : "border-slate-200 bg-white"}`}>
+                <button key={job.id} data-testid={`provider-job-${job.bookingId}`} type="button" onClick={() => setActiveProviderJobId(job.id)} className={`w-full rounded-xl border p-3 text-left text-sm ${activeProviderJob?.id === job.id ? "border-black bg-slate-50" : "border-slate-200 bg-white"}`}>
                   <strong>{job.bookingId}</strong>
                   <span className="ml-2 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase">{job.status}</span>
                   <p className="mt-1 text-xs text-slate-600">{job.service} · {job.scheduledWindow}</p>
                 </button>
               ))}
             </div>
-            <div className="rounded-xl bg-slate-50 p-4">
+            <div className="rounded-xl bg-slate-50 p-4" data-testid="provider-workbench">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Provider workbench</p>
-                  <h4 className="mt-1 text-lg font-black">{activeProviderJob?.bookingId} · {activeProviderJob?.status}</h4>
+                  <h4 className="mt-1 text-lg font-black">{activeProviderJob?.bookingId} · <span data-testid="provider-job-status">{activeProviderJob?.status}</span></h4>
                   <p className="mt-1 text-sm text-slate-600">{activeProviderJob?.vehicle?.year} {activeProviderJob?.vehicle?.make} {activeProviderJob?.vehicle?.model} · {activeProviderJob?.customer?.addressSummary}</p>
                 </div>
                 <div className="rounded-lg bg-white px-3 py-2 text-xs font-black">{openProviderJobs.length} open jobs</div>
@@ -162,21 +217,21 @@ function DemoAccess({
           <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1.5fr]">
             <div className="space-y-2">
               {dispatchQueue.jobs.map((job) => (
-                <button key={job.id} type="button" onClick={() => setActiveDispatchJobId(job.id)} className={`w-full rounded-xl border p-3 text-left text-sm ${activeDispatchJob?.id === job.id ? "border-black bg-slate-50" : "border-slate-200 bg-white"}`}>
+                <button key={job.id} data-testid={`dispatch-job-${job.bookingId}`} type="button" onClick={() => setActiveDispatchJobId(job.id)} className={`w-full rounded-xl border p-3 text-left text-sm ${activeDispatchJob?.id === job.id ? "border-black bg-slate-50" : "border-slate-200 bg-white"}`}>
                   <strong>{job.bookingId}</strong>
                   <span className="ml-2 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase">{job.status}</span>
                   <p className="mt-1 text-xs text-slate-600">{job.serviceName} · risk {job.risk.level}</p>
                 </button>
               ))}
             </div>
-            <div className="rounded-xl bg-slate-50 p-4">
+            <div className="rounded-xl bg-slate-50 p-4" data-testid="dispatch-workbench">
               <div className="grid gap-2 sm:grid-cols-4">
                 <div className="rounded-lg bg-white p-3"><strong>{dispatchQueue.summary.total}</strong><p className="text-xs text-slate-600">active</p></div>
                 <div className="rounded-lg bg-white p-3"><strong>{dispatchQueue.summary.unassigned}</strong><p className="text-xs text-slate-600">unassigned</p></div>
                 <div className="rounded-lg bg-white p-3"><strong>{dispatchQueue.summary.blocked}</strong><p className="text-xs text-slate-600">blocked</p></div>
                 <div className="rounded-lg bg-white p-3"><strong>{dispatchQueue.summary.atRisk}</strong><p className="text-xs text-slate-600">at risk</p></div>
               </div>
-              <h4 className="mt-4 text-lg font-black">{activeDispatchJob?.bookingId} · {activeDispatchJob?.status}</h4>
+              <h4 className="mt-4 text-lg font-black">{activeDispatchJob?.bookingId} · <span data-testid="dispatch-job-status">{activeDispatchJob?.status}</span></h4>
               <p className="mt-1 text-sm text-slate-600">{activeDispatchJob?.maskedCustomer?.addressSummary} · provider {activeDispatchJob?.providerName ?? "unassigned"}</p>
               <p className="mt-2 rounded bg-white p-2 text-xs font-semibold text-slate-700">{activeDispatchJob?.risk?.reasons?.join(" ")}</p>
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -209,6 +264,7 @@ export default function ReGoCustomerShell() {
   const [appointmentTime, setAppointmentTime] = useState(DEFAULT_BOOKING_DRAFT.appointmentTime);
   const [schedulePreference, setSchedulePreference] = useState("");
   const [activeModal, setActiveModal] = useState(null);
+  const closeModal = useCallback(() => setActiveModal(null), []);
   const [vehicleTab, setVehicleTab] = useState("make-model");
   const [selectedAddOns, setSelectedAddOns] = useState([]);
   const [bookingConfirmed, setBookingConfirmed] = useState(false);
@@ -341,7 +397,7 @@ export default function ReGoCustomerShell() {
     setSelectedAddOns((current) => current.includes(addOnId) ? current.filter((id) => id !== addOnId) : [...current, addOnId]);
   }
 
-  function proceedToCheckout() {
+  function continueToLocation() {
     setActiveModal("location");
   }
 
@@ -395,7 +451,8 @@ export default function ReGoCustomerShell() {
   }
 
   return (
-    <main className="min-h-screen bg-white font-sans text-black">
+    <>
+      <main id="rego-page-content" inert={activeModal ? true : undefined} className="min-h-screen bg-white font-sans text-black">
       <header className="h-[49px] bg-black text-white">
         <div className="mx-auto flex h-full max-w-[1063px] items-center justify-between px-5">
           <div className="flex items-center gap-3 text-[13px] font-bold">
@@ -403,7 +460,7 @@ export default function ReGoCustomerShell() {
             <span className="h-5 w-px bg-white/70" />
             <span>Mobile Mechanic</span>
           </div>
-          <nav className="hidden items-center gap-7 text-[12px] font-bold md:flex">
+          <nav aria-label="Customer" className="hidden items-center gap-7 text-[12px] font-bold md:flex">
             {CUSTOMER_NAV_ITEMS.map((item) => (
               <a key={item.href} href={item.href} className="hover:text-[#ffd400]">{item.label}</a>
             ))}
@@ -423,7 +480,7 @@ export default function ReGoCustomerShell() {
             {HERO_SERVICES.map((service) => {
               const selected = selectedHeroServiceId === service.id;
               return (
-                <button key={service.id} type="button" onClick={() => chooseHeroService(service)} className={`h-[82px] rounded-lg border text-center transition ${selected ? "border-black bg-black text-white shadow-lg" : "border-[#e5e7eb] bg-white text-black hover:border-black"}`}>
+                <button key={service.id} type="button" aria-label={service.name} aria-pressed={selected} onClick={() => chooseHeroService(service)} className={`h-[82px] rounded-lg border text-center transition ${selected ? "border-black bg-black text-white shadow-lg" : "border-[#e5e7eb] bg-white text-black hover:border-black"}`}>
                   <div className="text-[24px] font-black leading-8">{service.icon}</div>
                   <div className="mt-1 text-[11px] font-bold">{service.name}</div>
                 </button>
@@ -433,11 +490,11 @@ export default function ReGoCustomerShell() {
 
           <div className="mt-[22px] flex h-[42px] items-center rounded-lg border border-[#eef0f4] bg-[#f8f9fb] px-3">
             <span className="mr-3 text-[#9aa3b2]">●</span>
-            <input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Where will we service your vehicle?" className="w-full bg-transparent text-[13px] text-slate-700 outline-none placeholder:text-[#9ca3af]" />
+            <input aria-label="Service address" value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Where will we service your vehicle?" className="w-full bg-transparent text-[13px] text-slate-700 outline-none placeholder:text-[#9ca3af]" />
           </div>
           <button type="button" onClick={startScheduling} className="mt-4 h-[40px] w-full rounded-lg bg-black text-[13px] font-black text-white shadow-lg transition hover:bg-slate-800">Schedule Now</button>
           {bookingConfirmed && (
-            <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center text-[12px] font-black text-emerald-800">Booking confirmed for {effectiveAppointmentTime} with {selectedProvider?.name ?? "your provider"}. We&apos;ll keep this compact confirmation visible after checkout.</p>
+            <p data-testid="booking-confirmation" className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center text-[12px] font-black text-emerald-800">Mock booking confirmed for {effectiveAppointmentTime} with {selectedProvider?.name ?? "your provider"}. This confirmation is in memory only and will not be restored after reload.</p>
           )}
           <p className="mt-3 text-center text-[11px] font-semibold text-slate-500">{draftNotice}</p>
         </div>
@@ -485,9 +542,10 @@ export default function ReGoCustomerShell() {
           dispatchDemoNotice={dispatchDemoNotice}
         />
       </div>
+      </main>
 
       {activeModal === "vehicle" && (
-        <ModalShell onClose={() => setActiveModal(null)}>
+        <ModalShell label="Vehicle information" onClose={closeModal}>
           <div className="p-4">
             <h2 className="text-[18px] font-black">Let&apos;s get some information about your vehicle</h2>
             <p className="mt-2 text-[12px] text-slate-600">Enter your vehicle&apos;s make and model or VIN number</p>
@@ -505,7 +563,7 @@ export default function ReGoCustomerShell() {
                 <SelectField label="Transmission" value={vehicle.transmission} options={VEHICLE_OPTIONS.transmission} onChange={(value) => updateVehicle("transmission", value)} />
               </div>
             ) : (
-              <input value={vinInput} onChange={(event) => setVinInput(event.target.value)} placeholder="Enter VIN" className="mt-3 h-[36px] w-full rounded-sm border border-[#d9dee8] px-3 text-[12px] outline-none focus:border-black" />
+              <input aria-label="Vehicle VIN" value={vinInput} onChange={(event) => setVinInput(event.target.value)} placeholder="Enter VIN" className="mt-3 h-[36px] w-full rounded-sm border border-[#d9dee8] px-3 text-[12px] outline-none focus:border-black" />
             )}
             <div className="mt-4 flex justify-between">
               <button type="button" onClick={() => setActiveModal(null)} className="rounded bg-[#e5e7eb] px-4 py-2 text-[12px] font-bold">Back</button>
@@ -516,7 +574,7 @@ export default function ReGoCustomerShell() {
       )}
 
       {activeModal === "schedule" && (
-        <ModalShell onClose={() => setActiveModal(null)}>
+        <ModalShell label="Schedule preference" onClose={closeModal}>
           <div className="p-4">
             <h2 className="text-[16px] font-black">How would you like to schedule?</h2>
             <div className="mt-4 space-y-3">
@@ -532,7 +590,7 @@ export default function ReGoCustomerShell() {
       )}
 
       {activeModal === "details" && (
-        <ModalShell onClose={() => setActiveModal(null)} wide>
+        <ModalShell label="Service Details" onClose={closeModal} wide>
           <div className="bg-[#f4f5f7] pb-4">
             <div className="rounded-t bg-black p-5 text-white">
               <div className="flex items-start justify-between gap-3">
@@ -576,7 +634,7 @@ export default function ReGoCustomerShell() {
                   <h3 className="text-[16px] font-black">Add-ons</h3>
                   <div className="mt-4 space-y-2">
                     {ADD_ONS.map((addOn) => (
-                      <button key={addOn.id} type="button" onClick={() => toggleAddOn(addOn.id)} className={`flex w-full items-center justify-between rounded border px-2 py-2 text-left text-[11px] ${selectedAddOns.includes(addOn.id) ? "border-black bg-slate-50" : "border-[#d9dee8] bg-white"}`}>
+                      <button key={addOn.id} type="button" aria-pressed={selectedAddOns.includes(addOn.id)} onClick={() => toggleAddOn(addOn.id)} className={`flex w-full items-center justify-between rounded border px-2 py-2 text-left text-[11px] ${selectedAddOns.includes(addOn.id) ? "border-black bg-slate-50" : "border-[#d9dee8] bg-white"}`}>
                         <span><span className="mr-1 inline-flex h-3 w-3 items-center justify-center rounded-full bg-slate-400 text-[9px] text-white">+</span>{addOn.name}</span>
                         <span className="text-blue-700">{money(addOn.price)}</span>
                       </button>
@@ -591,7 +649,7 @@ export default function ReGoCustomerShell() {
                 <section className="rounded bg-white p-4 shadow-sm">
                   <div className="space-y-3 text-[12px]"><div className="flex justify-between"><span>Subtotal</span><span>{money(subtotal)}</span></div><div className="flex justify-between"><span>Tax</span><span>{money(tax)}</span></div><div className="flex justify-between text-[14px] font-black"><span>Total</span><span>{money(total)}</span></div></div>
                   <p className="mt-3 rounded bg-slate-50 p-2 text-[10px] font-semibold text-slate-600">{estimateCopy.summary}</p>
-                  <button type="button" onClick={proceedToCheckout} className="mt-3 h-[29px] w-full rounded bg-black text-[12px] font-black text-white">Proceed to Checkout</button>
+                  <button type="button" onClick={continueToLocation} className="mt-3 h-[29px] w-full rounded bg-black text-[12px] font-black text-white">Continue to location</button>
                 </section>
               </div>
             </div>
@@ -600,11 +658,11 @@ export default function ReGoCustomerShell() {
       )}
 
       {activeModal === "location" && (
-        <ModalShell onClose={() => setActiveModal(null)}>
+        <ModalShell label="Where will we service the vehicle?" onClose={closeModal}>
           <div className="p-4">
             <h2 className="text-[16px] font-black">Where will we service the vehicle?</h2>
             <div className="mt-4 flex h-[32px] items-center justify-between rounded border border-[#d9dee8] px-2 text-[12px]">
-              <input ref={addressInputRef} value={address} readOnly={!addressEditing} onChange={(event) => setAddress(event.target.value)} className={`w-full outline-none ${addressEditing ? "bg-white" : "bg-transparent"}`} />
+              <input aria-label="Service address" ref={addressInputRef} value={address} readOnly={!addressEditing} onChange={(event) => setAddress(event.target.value)} className={`w-full outline-none ${addressEditing ? "bg-white" : "bg-transparent"}`} />
               <button type="button" onClick={toggleAddressEditing} className="shrink-0 text-[11px] text-blue-700">{addressEditing ? "Done" : "Change Address"}</button>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2 text-[12px] sm:grid-cols-3">
@@ -616,7 +674,8 @@ export default function ReGoCustomerShell() {
               <textarea value={locationNotes} maxLength={1000} onChange={(event) => setLocationNotes(event.target.value)} placeholder="Let us know details of how to find your car." className="mt-2 h-[78px] w-full rounded border border-[#d9dee8] p-3 text-[12px] outline-none focus:border-black" />
             </label>
             <p className="mt-2 text-[11px] text-slate-500">1000 character maximum · {1000 - locationNotes.length} characters left</p>
-            <div className="mt-4 flex justify-between"><button type="button" onClick={() => setActiveModal("details")} className="rounded bg-[#e5e7eb] px-4 py-2 text-[12px] font-bold">Back</button><button type="button" onClick={finishLocation} className="rounded bg-black px-5 py-2 text-[12px] font-bold text-white">Next</button></div>
+            <p className="mt-3 rounded bg-slate-50 p-2 text-[11px] font-semibold text-slate-700">No payment is captured in this MVP. Provider confirmation and any future payment authorization remain deferred.</p>
+            <div className="mt-4 flex justify-between"><button type="button" onClick={() => setActiveModal("details")} className="rounded bg-[#e5e7eb] px-4 py-2 text-[12px] font-bold">Back</button><button type="button" onClick={finishLocation} className="rounded bg-black px-5 py-2 text-[12px] font-bold text-white">Confirm booking</button></div>
             {bookingConfirmed && <p className="mt-3 rounded bg-emerald-50 p-2 text-[12px] font-bold text-emerald-800">Booking ready. Confirmation is in memory only and is not persisted.</p>}
             {!confirmationGuidance.ready && <p className="mt-3 rounded bg-amber-50 p-2 text-[12px] font-bold text-amber-800">{confirmationGuidance.message}</p>}
           </div>
@@ -624,7 +683,7 @@ export default function ReGoCustomerShell() {
       )}
 
       {activeModal === "roadside" && (
-        <ModalShell onClose={() => setActiveModal(null)}>
+        <ModalShell label="Partner handoff for Car Tow" onClose={closeModal}>
           <div className="p-5">
             <h2 className="text-[20px] font-black">Partner handoff for Car Tow</h2>
             <p className="mt-2 text-[13px] font-semibold leading-5 text-slate-700">Towing and urgent roadside requests are partner-routed only. ReGo will not create a normal mechanic booking, provider assignment, or dispatch job for this request.</p>
@@ -643,6 +702,6 @@ export default function ReGoCustomerShell() {
           </div>
         </ModalShell>
       )}
-    </main>
+    </>
   );
 }
