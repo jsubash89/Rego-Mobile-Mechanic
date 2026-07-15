@@ -9,7 +9,7 @@ export default defineConfig({
   retries: CI ? 2 : 0,
   workers: CI ? 1 : undefined,
   reporter: CI ? [["line"], ["html", { open: "never" }]] : [["list"], ["html", { open: "never" }]],
-  snapshotPathTemplate: "{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}{ext}",
+  snapshotPathTemplate: "{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{platform}{ext}",
   expect: {
     toHaveScreenshot: { animations: "disabled", maxDiffPixelRatio: 0.03 },
   },

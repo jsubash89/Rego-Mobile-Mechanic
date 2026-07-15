@@ -133,7 +133,7 @@ Rules:
 - Check no customer top navigation exposes provider/admin/dispatch surfaces.
 - Check console has no runtime errors for smoke paths.
 - Add axe critical-violation checks after initial Playwright setup.
-- Keep checked-in desktop/mobile baselines stable and update them only after intentional visual review.
+- Keep checked-in platform-specific desktop/mobile baselines stable and update them only after intentional visual review against `Screenshots/`; macOS supports local review while Linux baselines certify GitHub CI rendering.
 
 Initial Playwright milestone scope:
 

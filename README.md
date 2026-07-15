@@ -29,7 +29,8 @@ system dependencies with `npx playwright install --with-deps chromium`. Use
 `npm run test:e2e:headed` to debug in a visible browser and
 `npm run test:e2e:update` only when intentionally approving desktop and mobile
 visual changes. Review updated baselines against the north-star references in
-`Screenshots/` before accepting them.
+`Screenshots/` before accepting them. Baselines are platform-specific so macOS
+local review and Linux CI each compare against deterministic references.
 
 ## Current scope
 
